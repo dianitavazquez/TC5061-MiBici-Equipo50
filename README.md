@@ -13,12 +13,20 @@ estación en la hora siguiente. El diseño, las fuentes, la estrategia temporal 
 métricas están documentados en [docs/p2-classifier-design.md](docs/p2-classifier-design.md).
 
 ```bash
+# Requiere Python 3.12. No utilizar un entorno creado con Python 3.9.
+python3.12 -m venv .venv
+source .venv/bin/activate
 make requirements
 python -m mibici_ml.dataset download-drive
 python -m mibici_ml.dataset profile
 python -m mibici_ml.modeling.train p2-baseline
 make mlflow-ui
 ```
+
+Si `mlflow.db` reporta una revisión de Alembic desconocida, la terminal está usando
+otra versión de MLflow. Verifica `python --version` y `python -m mlflow --version`;
+deben indicar Python 3.12 y MLflow 3.17.1, respectivamente. No borres `mlflow.db`, pues
+contiene los experimentos registrados.
 
 ## Project Organization
 

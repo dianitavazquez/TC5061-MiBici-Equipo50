@@ -3,7 +3,7 @@ flake8
 isort
 loguru
 matplotlib
-mlflow
+mlflow==3.17.1
 numpy
 pandas
 pip

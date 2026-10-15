@@ -4,16 +4,20 @@
 
 PROJECT_NAME = TC5061-MiBici-Equipo50
 PYTHON_VERSION = 3.12
-PYTHON_INTERPRETER = python
+PYTHON_INTERPRETER ?= python3
 
 #################################################################################
 # COMMANDS                                                                      #
 #################################################################################
 
 
+.PHONY: check-python
+check-python:
+	@$(PYTHON_INTERPRETER) -c 'import sys; expected=(3, 12); actual=sys.version_info[:2]; assert actual == expected, "Este proyecto requiere Python 3.12; se detectó %s.%s" % actual'
+
 ## Install Python dependencies
 .PHONY: requirements
-requirements:
+requirements: check-python
 	$(PYTHON_INTERPRETER) -m pip install -U pip
 	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
 	
@@ -71,8 +75,8 @@ train-p2:
 
 ## Open the local MLflow tracking interface
 .PHONY: mlflow-ui
-mlflow-ui:
-	mlflow ui --backend-store-uri sqlite:///mlflow.db
+mlflow-ui: check-python
+	$(PYTHON_INTERPRETER) -m mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 
 #################################################################################
