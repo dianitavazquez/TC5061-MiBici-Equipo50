@@ -61,7 +61,18 @@ create_environment:
 ## Make dataset
 .PHONY: data
 data: requirements
-	$(PYTHON_INTERPRETER) mibici_ml/dataset.py
+	$(PYTHON_INTERPRETER) -m mibici_ml.dataset download-drive
+	$(PYTHON_INTERPRETER) -m mibici_ml.dataset profile
+
+## Train and track the P2 baseline in MLflow
+.PHONY: train-p2
+train-p2:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train p2-baseline
+
+## Open the local MLflow tracking interface
+.PHONY: mlflow-ui
+mlflow-ui:
+	mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 
 #################################################################################

@@ -6,6 +6,20 @@
 
 Propuesta y base reproducible de proyecto MiBici
 
+## Clasificador P2
+
+El baseline predice presión de demanda por falta de bicicletas y de anclajes para cada
+estación en la hora siguiente. El diseño, las fuentes, la estrategia temporal y las
+métricas están documentados en [docs/p2-classifier-design.md](docs/p2-classifier-design.md).
+
+```bash
+make requirements
+python -m mibici_ml.dataset download-drive
+python -m mibici_ml.dataset profile
+python -m mibici_ml.modeling.train p2-baseline
+make mlflow-ui
+```
+
 ## Project Organization
 
 ```
@@ -58,4 +72,3 @@ Propuesta y base reproducible de proyecto MiBici
 ```
 
 --------
-
