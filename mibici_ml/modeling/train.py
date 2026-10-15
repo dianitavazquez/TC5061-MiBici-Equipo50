@@ -220,7 +220,11 @@ def train_p2_baseline(
         for metadata_file in [raw_dir / "manifest.json", raw_dir / "profile.json"]:
             if metadata_file.exists():
                 mlflow.log_artifact(str(metadata_file), artifact_path="data_metadata")
-        mlflow.sklearn.log_model(model, artifact_path="model")
+        mlflow.sklearn.log_model(
+            model,
+            name="model",
+            serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+        )
 
     logger.success(json.dumps(metrics, indent=2))
 
