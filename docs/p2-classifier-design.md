@@ -35,8 +35,6 @@ snapshots de bicicletas/anclajes disponibles.
   genera `data/raw/manifest.json` con URL y SHA-256 de cada archivo; los datos crudos no
   se versionan en Git.
 
-La frase del borrador “septiembre 2025 a septiembre 2026 = un año” incluía 13 meses.
-La ventana anterior corrige esa ambigüedad y deja exactamente doce meses de evaluación.
 
 ### Variables originales y tratamiento
 
