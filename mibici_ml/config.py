@@ -67,4 +67,9 @@ CLUSTERING_TRIPS_FILE = INTERIM_DATA_DIR / "viajes_clustering.parquet"
 CLUSTERING_STATIONS_CLEAN_FILE = INTERIM_DATA_DIR / "estaciones_clustering.parquet"
 CLUSTERING_MANIFEST_FILE = REFERENCES_DIR / "manifest_clustering.json"
 
+# Perfil de uso por estación (features)
+CLUSTERING_MIN_ACTIVE_DAYS = 30  # menos días con viajes que esto: perfil poco confiable
+CLUSTERING_FEATURES_FILE = PROCESSED_DATA_DIR / "perfil_estaciones_clustering.parquet"
+
+
 CLUSTERING_SEED = 42
