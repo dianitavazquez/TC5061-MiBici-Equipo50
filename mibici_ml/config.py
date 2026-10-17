@@ -71,5 +71,8 @@ CLUSTERING_MANIFEST_FILE = REFERENCES_DIR / "manifest_clustering.json"
 CLUSTERING_MIN_ACTIVE_DAYS = 30  # menos días con viajes que esto: perfil poco confiable
 CLUSTERING_FEATURES_FILE = PROCESSED_DATA_DIR / "perfil_estaciones_clustering.parquet"
 
+# Experimentos en MLflow (base de datos local, se crea en la raíz del repo)
+CLUSTERING_MLFLOW_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
+CLUSTERING_MLFLOW_EXPERIMENT = "mibici-equipo50"
 
 CLUSTERING_SEED = 42
