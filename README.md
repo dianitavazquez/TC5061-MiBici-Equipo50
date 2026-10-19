@@ -12,6 +12,10 @@ El baseline predice presión de demanda por falta de bicicletas y de anclajes pa
 estación en la hora siguiente. El diseño, las fuentes, la estrategia temporal y las
 métricas están documentados en [docs/p2-classifier-design.md](docs/p2-classifier-design.md).
 
+El análisis exploratorio se encuentra en
+[notebooks/1.0-aavm-p2-eda.ipynb](notebooks/1.0-aavm-p2-eda.ipynb). Incluye cobertura,
+calidad, demanda por hora, estaciones con más salidas y distribución de capacidades.
+
 ```bash
 # Requiere Python 3.12. No utilizar un entorno creado con Python 3.9.
 python3.12 -m venv .venv
