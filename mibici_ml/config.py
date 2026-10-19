@@ -30,3 +30,49 @@ try:
     logger.add(lambda msg: tqdm.write(msg, end=""), colorize=True)
 except ModuleNotFoundError:
     pass
+
+# ---------------------------------------------------------------------------
+# P3: Clustering de estaciones
+# ---------------------------------------------------------------------------
+REFERENCES_DIR = PROJ_ROOT / "references"
+
+# Archivos que deben estar en data/raw (descargados del portal de datos abiertos de MiBici)
+# Viajes de septiembre 2025 a septiembre 2026 (mismo rango que el resto del equipo)
+CLUSTERING_TRIP_FILES = [
+    "datos_abiertos_2025_09.csv",
+    "datos_abiertos_2025_10.csv",
+    "datos_abiertos_2025_11.csv",
+    "datos_abiertos_2025_12.csv",
+    "datos_abiertos_2026_01.csv",
+    "datos_abiertos_2026_02.csv",
+    "datos_abiertos_2026_03.csv",
+    "datos_abiertos_2026_04.csv",
+    "datos_abiertos_2026_05.csv",
+    "datos_abiertos_2026_06.csv",
+    "datos_abiertos_2026_07.csv",
+    "datos_abiertos_2026_08.csv",
+    "datos_abiertos_2026_09.csv",
+]
+CLUSTERING_STATIONS_FILE = "nomenclatura_2026_09.csv"
+
+CLUSTERING_START_DATE = "2025-09-01"
+CLUSTERING_END_DATE = "2026-09-30"
+
+# Reglas de limpieza de viajes
+CLUSTERING_MIN_TRIP_SECONDS = 60  # misma estación y menos de esto: arranque falso
+CLUSTERING_MAX_TRIP_HOURS = 3  # más de esto: bici mal anclada o error de registro
+
+# Salidas de la ingesta
+CLUSTERING_TRIPS_FILE = INTERIM_DATA_DIR / "viajes_clustering.parquet"
+CLUSTERING_STATIONS_CLEAN_FILE = INTERIM_DATA_DIR / "estaciones_clustering.parquet"
+CLUSTERING_MANIFEST_FILE = REFERENCES_DIR / "manifest_clustering.json"
+
+# Perfil de uso por estación (features)
+CLUSTERING_MIN_ACTIVE_DAYS = 30  # menos días con viajes que esto: perfil poco confiable
+CLUSTERING_FEATURES_FILE = PROCESSED_DATA_DIR / "perfil_estaciones_clustering.parquet"
+
+# Experimentos en MLflow (base de datos local, se crea en la raíz del repo)
+CLUSTERING_MLFLOW_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
+CLUSTERING_MLFLOW_EXPERIMENT = "mibici-equipo50"
+
+CLUSTERING_SEED = 42

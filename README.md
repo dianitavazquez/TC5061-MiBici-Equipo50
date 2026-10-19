@@ -81,3 +81,62 @@ contiene los experimentos registrados.
 ```
 
 --------
+
+## P3: Clustering de estaciones
+
+En esta parte agrupo las estaciones de MiBici según cómo se usan, para ver qué grupos comparten patrones de uso y dónde se ubican. Uso los viajes de septiembre de 2025 a septiembre de 2026 de los [datos abiertos de MiBici](https://www.mibici.net/es/datos-abiertos).
+
+### Cómo correrlo
+
+1. Descargo del portal los 13 archivos `datos_abiertos_2025_09.csv` a `datos_abiertos_2026_09.csv` y `nomenclatura_2026_09.csv`, y los pongo en `data/raw/`.
+2. Desde la raíz del repo, con el entorno activado, corro:
+
+```bash
+python -m mibici_ml.dataset_clustering
+python -m mibici_ml.features_clustering
+python -m mibici_ml.modeling.train_clustering
+python -m mibici_ml.modeling.train_clustering --modelo candidato --k 3 --k 5 --k 6
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+3. Abro http://127.0.0.1:5000 y entro al experimento `mibici-equipo50`.
+
+### Qué hace cada archivo
+
+1. `mibici_ml/dataset_clustering.py` lee los CSV, normaliza columnas, codificación y fechas, limpia los viajes y los guarda en Parquet en `data/interim/`. También escribe `references/manifest_clustering.json` con el SHA-256 de cada archivo y la versión de los datos (`faf7138becd5`). De 4,874,666 viajes quedan 4,718,830.
+2. `mibici_ml/features_clustering.py` arma el perfil de uso de cada estación (viajes por día activo, salidas por franja horaria, fin de semana, balance, viajes redondos y duración) y lo guarda en `data/processed/`. Quedan 468 estaciones.
+3. `mibici_ml/modeling/train_clustering.py` entrena el baseline y el modelo candidato y registra cada run en MLflow con sus parámetros, métricas, artefactos, el modelo y las etiquetas `equipo`, `pregunta` y `git_commit`.
+4. `mibici_ml/plots_clustering.py` hace el mapa de los grupos y el heatmap de su perfil. Se guardan en MLflow y en `reports/figures/`.
+5. `notebooks/1.0-cavm-eda-clustering.ipynb` tiene la exploración de las duraciones que usé para definir las reglas de limpieza.
+
+Todas las rutas, fechas y la semilla están en `mibici_ml/config.py`.
+
+### Datos personales
+
+No cargo `Usuario_Id`, `Genero` ni `Año_de_nacimiento`, los CSV no se suben a Git y solo publico resultados agregados por estación. El portal no publica una licencia abierta, solo sus [términos y condiciones](https://www.mibici.net/es/termino-y-condiciones/) y su [aviso de privacidad](https://www.mibici.net/es/aviso-de-privacidad/), así que uso los datos solo para este proyecto escolar.
+
+### Resultados
+
+Los dos modelos usan K-Means. El baseline solo usa viajes por día y proporción de salidas en fin de semana. El candidato usa las 9 variables de uso. Para poder comparar, calculo las métricas de todos los runs en el mismo espacio (las 9 variables estandarizadas).
+
+| Run | Silhouette (más alto mejor) | Davies-Bouldin (más bajo mejor) | Calinski-Harabasz (más alto mejor) | Grupo más chico |
+|---|---|---|---|---|
+| p3-baseline-kmeans-k4 | 0.067 | 2.773 | 39.7 | 7.9 % |
+| p3-candidato-kmeans-k3 | 0.153 | 1.901 | 83.0 | 27.8 % |
+| **p3-candidato-kmeans-k4** | **0.167** | 1.686 | **83.6** | 12.0 % |
+| p3-candidato-kmeans-k5 | 0.151 | 1.743 | 75.2 | 9.6 % |
+| p3-candidato-kmeans-k6 | 0.157 | 1.629 | 69.7 | 4.9 % |
+
+El candidato es mejor que el baseline en las tres métricas. Elegí k=4 porque tiene la mejor silhouette y el mejor Calinski-Harabasz. Con k=6 el Davies-Bouldin mejora un poco, pero queda un grupo de solo 23 estaciones. La silhouette es baja en general, lo que indica que el uso cambia de forma gradual entre estaciones y no hay cortes muy marcados.
+
+Con k=4 salen estos grupos:
+
+1. Grupo 3 (170 estaciones): las de más uso, casi todas en el centro de Guadalajara.
+2. Grupo 0 (132 estaciones): muchas salidas en la mañana y viajes cortos. Están en Zapopan, al norte del centro y hacia Tlaquepaque, y parecen zonas donde vive la gente.
+3. Grupo 1 (110 estaciones): más salidas en la tarde, viajes más largos y salen más bicis de las que llegan. Están al poniente del centro.
+4. Grupo 2 (56 estaciones): poco uso entre semana, más salidas al mediodía, en fin de semana y viajes redondos, es decir, un uso más recreativo.
+
+![Mapa de los grupos](reports/figures/p3-candidato-kmeans-k4_mapa_grupos.png)
+
+![Perfil de los grupos](reports/figures/p3-candidato-kmeans-k4_perfil_grupos.png)
+
