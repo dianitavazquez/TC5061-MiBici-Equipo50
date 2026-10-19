@@ -2,19 +2,33 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import html
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 import re
+import unicodedata
 from urllib.request import Request, urlopen
 
 from loguru import logger
 import pandas as pd
 import typer
 
-from mibici_ml.config import RAW_DATA_DIR, PROCESSED_DATA_DIR
+from mibici_ml.config import (
+    CLUSTERING_END_DATE,
+    CLUSTERING_MANIFEST_FILE,
+    CLUSTERING_MAX_TRIP_HOURS,
+    CLUSTERING_MIN_TRIP_SECONDS,
+    CLUSTERING_START_DATE,
+    CLUSTERING_STATIONS_CLEAN_FILE,
+    CLUSTERING_STATIONS_FILE,
+    CLUSTERING_TRIP_FILES,
+    CLUSTERING_TRIPS_FILE,
+    P1_MANIFEST_FILE,
+    P1_TRIPS_FILE,
+    RAW_DATA_DIR,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -29,6 +43,31 @@ TRIP_COLUMNS = [
     "Origen_Id",
     "Destino_Id",
 ]
+REQUIRED_COLUMNS = {
+    "Viaje_Id",
+    "Inicio_del_viaje",
+    "Fin_del_viaje",
+    "Origen_Id",
+    "Destino_Id",
+}
+MODEL_COLUMNS = sorted(REQUIRED_COLUMNS)
+
+# P3 usa nombres normalizados porque estos cambian entre exportaciones anuales.
+P3_TRIP_COLUMNS = {
+    "viaje_id": "viaje_id",
+    "inicio_del_viaje": "inicio",
+    "fin_del_viaje": "fin",
+    "origen_id": "origen_id",
+    "destino_id": "destino_id",
+}
+P3_STATION_COLUMNS = {
+    "id": "estacion_id",
+    "name": "nombre",
+    "latitude": "latitud",
+    "longitude": "longitud",
+    "dpcapacity": "capacidad",
+}
+P3_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def _open_url(url: str):
@@ -202,8 +241,8 @@ def read_trip_file(path: Path) -> tuple[pd.DataFrame, str]:
 @app.command("ingest")
 def ingest(
     input_dir: Path = RAW_DATA_DIR,
-    output_path: Path = PROCESSED_DATA_DIR / "mibici_trips.parquet",
-    manifest_path: Path = PROCESSED_DATA_DIR / "manifest.json",
+    output_path: Path = P1_TRIPS_FILE,
+    manifest_path: Path = P1_MANIFEST_FILE,
 ):
     """Validate, deduplicate, and save monthly MiBici trip data."""
     input_files = sorted(input_dir.glob("datos_abiertos_*.csv"))
@@ -322,6 +361,161 @@ def ingest(
     logger.success("Parquet saved to {}", output_path)
     logger.success("Manifest saved to {}", manifest_path)
     logger.info("Final row count: {}", len(trips))
+
+
+def normalize_column(name: str) -> str:
+    """Normalize a source column name across MiBici export versions."""
+    without_accents = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "_", without_accents.strip().lower()).strip("_")
+
+
+def detect_encoding(path: Path) -> str:
+    """Return the encoding used by a MiBici source file."""
+    try:
+        path.read_bytes().decode("utf-8")
+        return "utf-8"
+    except UnicodeDecodeError:
+        return "cp1252"
+
+
+def read_p3_trips(path: Path) -> tuple[pd.DataFrame, str]:
+    """Read the non-personal trip columns required by P3."""
+    encoding = detect_encoding(path)
+    trips = pd.read_csv(
+        path,
+        encoding=encoding,
+        usecols=lambda column: normalize_column(column) in P3_TRIP_COLUMNS,
+        dtype=str,
+    )
+    trips.columns = [P3_TRIP_COLUMNS[normalize_column(column)] for column in trips.columns]
+    missing = set(P3_TRIP_COLUMNS.values()) - set(trips.columns)
+    if missing:
+        raise ValueError(f"{path.name} no tiene las columnas {sorted(missing)}")
+    return trips, encoding
+
+
+def convert_p3_types(trips: pd.DataFrame) -> pd.DataFrame:
+    trips = trips.copy()
+    for column in ["inicio", "fin"]:
+        trips[column] = pd.to_datetime(trips[column], format=P3_DATE_FORMAT, errors="coerce")
+    for column in ["viaje_id", "origen_id", "destino_id"]:
+        trips[column] = pd.to_numeric(trips[column], errors="coerce").astype("Int64")
+    return trips
+
+
+def _filter_p3(trips: pd.DataFrame, keep: pd.Series, reason: str, summary: dict) -> pd.DataFrame:
+    summary[reason] = int((~keep).sum())
+    return trips[keep]
+
+
+def clean_p3_trips(
+    trips: pd.DataFrame, station_ids: set[int]
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Apply the documented P3 cleaning rules."""
+    summary = {"registros_originales": len(trips)}
+    trips = _filter_p3(trips, ~trips.duplicated(), "duplicados", summary)
+    trips = _filter_p3(trips, trips.notna().all(axis=1), "valores_invalidos", summary)
+
+    start = pd.Timestamp(CLUSTERING_START_DATE)
+    end = pd.Timestamp(CLUSTERING_END_DATE) + pd.Timedelta(days=1)
+    trips = _filter_p3(
+        trips, (trips["inicio"] >= start) & (trips["inicio"] < end), "fuera_de_rango", summary
+    )
+
+    duration = (trips["fin"] - trips["inicio"]).dt.total_seconds()
+    same_station = trips["origen_id"] == trips["destino_id"]
+    trips = _filter_p3(trips, duration >= 0, "duracion_negativa", summary)
+    duration = duration[trips.index]
+    same_station = same_station[trips.index]
+    trips = _filter_p3(
+        trips,
+        ~(same_station & (duration < CLUSTERING_MIN_TRIP_SECONDS)),
+        "arranque_falso",
+        summary,
+    )
+    duration = duration[trips.index]
+    trips = _filter_p3(
+        trips,
+        duration <= CLUSTERING_MAX_TRIP_HOURS * 3600,
+        "duracion_mayor_al_maximo",
+        summary,
+    )
+    known = trips["origen_id"].isin(station_ids) & trips["destino_id"].isin(station_ids)
+    trips = _filter_p3(trips, known, "estacion_sin_nomenclatura", summary)
+
+    clean = pd.DataFrame(
+        {
+            "inicio": trips["inicio"],
+            "fin": trips["fin"],
+            "origen_id": trips["origen_id"].astype("int32"),
+            "destino_id": trips["destino_id"].astype("int32"),
+            "duracion_min": ((trips["fin"] - trips["inicio"]).dt.total_seconds() / 60).round(2),
+        }
+    ).reset_index(drop=True)
+    summary["registros_limpios"] = len(clean)
+    return clean, summary
+
+
+def clean_p3_stations(path: Path) -> pd.DataFrame:
+    stations = pd.read_csv(path, encoding=detect_encoding(path))
+    stations.columns = [normalize_column(column) for column in stations.columns]
+    stations = stations.rename(columns=P3_STATION_COLUMNS)
+    stations["zona"] = stations["nombre"].str.extract(r"(GDL|ZPN|TLQ)", expand=False)
+    stations["activa"] = ~stations["nombre"].str.startswith("ex-")
+    columns = ["estacion_id", "nombre", "zona", "latitud", "longitud", "capacidad", "activa"]
+    return stations[columns]
+
+
+def describe_p3_file(path: Path, rows: int, encoding: str) -> dict:
+    return {
+        "archivo": path.name,
+        "bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+        "registros": rows,
+        "codificacion": encoding,
+    }
+
+
+@app.command("prepare-p3")
+def prepare_p3() -> None:
+    """Clean and persist the station-clustering inputs and manifest."""
+    required = [*CLUSTERING_TRIP_FILES, CLUSTERING_STATIONS_FILE]
+    missing = [name for name in required if not (RAW_DATA_DIR / name).exists()]
+    if missing:
+        raise FileNotFoundError(f"Faltan estos archivos en {RAW_DATA_DIR}: {', '.join(missing)}")
+
+    station_path = RAW_DATA_DIR / CLUSTERING_STATIONS_FILE
+    stations = clean_p3_stations(station_path)
+    file_info = [describe_p3_file(station_path, len(stations), detect_encoding(station_path))]
+    months = []
+    for name in CLUSTERING_TRIP_FILES:
+        path = RAW_DATA_DIR / name
+        monthly, encoding = read_p3_trips(path)
+        logger.info(f"{name}: {len(monthly):,} viajes ({encoding})")
+        months.append(monthly)
+        file_info.append(describe_p3_file(path, len(monthly), encoding))
+
+    trips, summary = clean_p3_trips(
+        convert_p3_types(pd.concat(months, ignore_index=True)), set(stations["estacion_id"])
+    )
+    CLUSTERING_TRIPS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    trips.to_parquet(CLUSTERING_TRIPS_FILE, index=False)
+    stations.to_parquet(CLUSTERING_STATIONS_CLEAN_FILE, index=False)
+
+    hashes = "".join(sorted(item["sha256"] for item in file_info))
+    manifest = {
+        "pregunta": "P3",
+        "fuente": "https://www.mibici.net/es/datos-abiertos",
+        "rango": {"inicio": CLUSTERING_START_DATE, "fin": CLUSTERING_END_DATE},
+        "version_datos": hashlib.sha256(hashes.encode()).hexdigest()[:12],
+        "archivos": file_info,
+        "limpieza": summary,
+    }
+    CLUSTERING_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CLUSTERING_MANIFEST_FILE.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    logger.success(f"Datos P3 guardados; versión {manifest['version_datos']}")
 
 
 if __name__ == "__main__":

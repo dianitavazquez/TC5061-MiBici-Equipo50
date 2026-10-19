@@ -78,6 +78,16 @@ train-p1:
 train-p2:
 	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train p2-baseline
 
+## Train and track the P3 clustering models in MLflow
+.PHONY: train-p3
+train-p3:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train train-p3
+
+## Prepare data and run the three modeling pipelines
+.PHONY: pipeline
+pipeline:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train all
+
 ## Open the local MLflow tracking interface
 .PHONY: mlflow-ui
 mlflow-ui: check-python

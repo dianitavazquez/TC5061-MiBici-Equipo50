@@ -20,6 +20,25 @@ MODELS_DIR = PROJ_ROOT / "models"
 
 REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
+REFERENCES_DIR = PROJ_ROOT / "references"
+
+# Tracking compartido por los tres modelos
+MLFLOW_TRACKING_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
+MLFLOW_EXPERIMENT = "mibici-equipo50"
+
+# P1: regresión de demanda
+P1_TRIPS_FILE = PROCESSED_DATA_DIR / "mibici_trips.parquet"
+P1_MANIFEST_FILE = PROCESSED_DATA_DIR / "manifest.json"
+P1_FEATURES_FILE = PROCESSED_DATA_DIR / "p1_features.parquet"
+P1_MODEL_FILE = MODELS_DIR / "p1_regression_model.joblib"
+P1_COMPARISON_FILE = PROCESSED_DATA_DIR / "p1_model_comparison.csv"
+
+# P2: clasificación de presión de demanda
+P2_START_DATE = "2025-10-01"
+P2_END_DATE = "2026-10-01"
+P2_ALPHA = 0.5
+P2_TRAIN_FRACTION = 0.8
+P2_STATIONS_FILE = "nomenclatura_2026_09.csv"
 
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135
@@ -34,8 +53,6 @@ except ModuleNotFoundError:
 # ---------------------------------------------------------------------------
 # P3: Clustering de estaciones
 # ---------------------------------------------------------------------------
-REFERENCES_DIR = PROJ_ROOT / "references"
-
 # Archivos que deben estar en data/raw (descargados del portal de datos abiertos de MiBici)
 # Viajes de septiembre 2025 a septiembre 2026 (mismo rango que el resto del equipo)
 CLUSTERING_TRIP_FILES = [
@@ -72,7 +89,7 @@ CLUSTERING_MIN_ACTIVE_DAYS = 30  # menos días con viajes que esto: perfil poco 
 CLUSTERING_FEATURES_FILE = PROCESSED_DATA_DIR / "perfil_estaciones_clustering.parquet"
 
 # Experimentos en MLflow (base de datos local, se crea en la raíz del repo)
-CLUSTERING_MLFLOW_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
-CLUSTERING_MLFLOW_EXPERIMENT = "mibici-equipo50"
+CLUSTERING_MLFLOW_URI = MLFLOW_TRACKING_URI
+CLUSTERING_MLFLOW_EXPERIMENT = MLFLOW_EXPERIMENT
 
 CLUSTERING_SEED = 42

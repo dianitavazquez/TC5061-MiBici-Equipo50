@@ -1,16 +1,18 @@
 black
 flake8
 isort
+joblib
 loguru
 matplotlib
 mlflow==3.17.1
 numpy
 pandas
 pip
+pyarrow
 python-dotenv
+pytest
 scikit-learn
 tqdm
 typer>=0.12
-pyarrow
 ipykernel
 -e .

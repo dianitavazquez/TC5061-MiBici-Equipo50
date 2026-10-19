@@ -4,18 +4,34 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from loguru import logger
 import numpy as np
 import pandas as pd
 import typer
-from loguru import logger
 
-from mibici_ml.config import PROCESSED_DATA_DIR
+from mibici_ml.config import (
+    CLUSTERING_FEATURES_FILE,
+    CLUSTERING_MIN_ACTIVE_DAYS,
+    CLUSTERING_STATIONS_CLEAN_FILE,
+    CLUSTERING_TRIPS_FILE,
+    P1_FEATURES_FILE,
+    P1_TRIPS_FILE,
+)
 from mibici_ml.dataset import TRIP_COLUMNS, read_csv_compatible
 
 app = typer.Typer(no_args_is_help=True)
 
 TIMESTAMP_COL = "Inicio_del_viaje"
 STATION_COL = "Origen_Id"
+P3_TIME_RANGES = {
+    "manana": range(6, 10),
+    "mediodia": range(10, 16),
+    "tarde": range(16, 20),
+    "noche": [*range(20, 24), *range(0, 6)],
+}
+P3_HOUR_TO_RANGE = {
+    hour: time_range for time_range, hours in P3_TIME_RANGES.items() for hour in hours
+}
 
 
 def load_clean_trips(raw_dir: Path) -> tuple[pd.DataFrame, dict[str, int]]:
@@ -238,8 +254,8 @@ def build_hourly_features(trips: pd.DataFrame) -> pd.DataFrame:
 
 @app.command("build-p1")
 def build_p1_command(
-    input_path: Path = PROCESSED_DATA_DIR / "mibici_trips.parquet",
-    output_path: Path = PROCESSED_DATA_DIR / "p1_features.parquet",
+    input_path: Path = P1_TRIPS_FILE,
+    output_path: Path = P1_FEATURES_FILE,
 ):
     """Generate leakage-safe station-hour regression features."""
     if not input_path.exists():
@@ -262,6 +278,82 @@ def build_p1_command(
         features["timestamp"].min(),
         features["timestamp"].max(),
     )
+
+
+def count_active_days(trips: pd.DataFrame) -> pd.Series:
+    """Count days with a departure or arrival at each station."""
+    day = trips["inicio"].dt.normalize()
+    days = pd.concat(
+        [
+            pd.DataFrame({"estacion_id": trips["origen_id"], "dia": day}),
+            pd.DataFrame({"estacion_id": trips["destino_id"], "dia": day}),
+        ]
+    )
+    return days.drop_duplicates().groupby("estacion_id").size()
+
+
+def build_station_profile(trips: pd.DataFrame) -> pd.DataFrame:
+    """Build the P3 usage profile with one row per station."""
+    origin = trips["origen_id"].rename("estacion_id")
+    destination = trips["destino_id"].rename("estacion_id")
+    profile = (
+        pd.DataFrame(
+            {
+                "dias_activos": count_active_days(trips),
+                "salidas": trips.groupby(origin).size(),
+                "llegadas": trips.groupby(destination).size(),
+            }
+        )
+        .fillna(0)
+        .astype(int)
+    )
+    total = profile["salidas"] + profile["llegadas"]
+    profile["viajes_dia"] = total / profile["dias_activos"]
+    profile["balance"] = (profile["llegadas"] - profile["salidas"]) / total
+
+    time_range = trips["inicio"].dt.hour.map(P3_HOUR_TO_RANGE)
+    by_range = pd.crosstab(origin, time_range, normalize="index")
+    profile = profile.join(by_range.reindex(columns=list(P3_TIME_RANGES)).add_prefix("prop_"))
+    profile["prop_fin_semana"] = (trips["inicio"].dt.dayofweek >= 5).groupby(origin).mean()
+    profile["prop_redondo"] = (trips["origen_id"] == trips["destino_id"]).groupby(origin).mean()
+    profile["duracion_mediana"] = trips.groupby(origin)["duracion_min"].median()
+    return profile.rename_axis("estacion_id").reset_index()
+
+
+def filter_station_profile(
+    profile: pd.DataFrame, stations: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Filter inactive P3 stations and stations with insufficient history."""
+    summary = {"estaciones_nomenclatura": len(stations)}
+    profile = stations.merge(profile, on="estacion_id", how="inner")
+    summary["sin_viajes"] = summary["estaciones_nomenclatura"] - len(profile)
+    summary["retiradas"] = int((~profile["activa"]).sum())
+    profile = profile[profile["activa"]]
+    insufficient = profile["dias_activos"] < CLUSTERING_MIN_ACTIVE_DAYS
+    summary["pocos_dias_activos"] = int(insufficient.sum())
+    profile = profile[~insufficient]
+    summary["estaciones_finales"] = len(profile)
+    return profile.drop(columns="activa").reset_index(drop=True), summary
+
+
+@app.command("build-p3")
+def build_p3_command(
+    trips_path: Path = CLUSTERING_TRIPS_FILE,
+    stations_path: Path = CLUSTERING_STATIONS_CLEAN_FILE,
+    output_path: Path = CLUSTERING_FEATURES_FILE,
+) -> None:
+    """Generate the station-level clustering features."""
+    for path in [trips_path, stations_path]:
+        if not path.exists():
+            raise FileNotFoundError(f"No existe {path}. Corre primero dataset prepare-p3.")
+    trips = pd.read_parquet(trips_path)
+    stations = pd.read_parquet(stations_path)
+    profile, summary = filter_station_profile(build_station_profile(trips), stations)
+    for reason, count in summary.items():
+        logger.info(f"{reason}: {count}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    profile.to_parquet(output_path, index=False)
+    logger.success(f"Perfil de {len(profile)} estaciones en {output_path}")
 
 
 if __name__ == "__main__":
