@@ -629,14 +629,14 @@ def train_p3_command(
 def train_all(prepare_data: bool = True) -> None:
     """Prepare data, build features, and train all three project models."""
     if prepare_data:
-        from mibici_ml.dataset import ingest, prepare_p3
+        from mibici_ml.dataset import prepare_all_data
         from mibici_ml.features import build_p1_command, build_p3_command
 
-        logger.info("Preparando dataset y features de P1")
-        ingest(RAW_DATA_DIR, P1_TRIPS_FILE, P1_MANIFEST_FILE)
+        logger.info("Descargando y preparando los datasets compartidos")
+        prepare_all_data()
+        logger.info("Construyendo features de P1")
         build_p1_command(P1_TRIPS_FILE, P1_FEATURES_FILE)
-        logger.info("Preparando dataset y features de P3")
-        prepare_p3()
+        logger.info("Construyendo features de P3")
         build_p3_command(
             output_path=CLUSTERING_FEATURES_FILE,
         )

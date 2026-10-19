@@ -4,7 +4,117 @@
     <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
 </a>
 
-Propuesta y base reproducible de proyecto MiBici
+Pipeline reproducible para estudiar la demanda y los patrones de uso del sistema de
+bicicletas públicas MiBici a nivel estación-hora. El proyecto centraliza ingesta,
+variables, entrenamiento, evaluación y tracking de experimentos con MLflow.
+
+## Preguntas del proyecto
+
+1. **P1 — Regresión:** ¿cuántas salidas tendrá cada estación durante la siguiente hora?
+2. **P2 — Clasificación:** ¿qué estaciones tendrán riesgo de quedarse sin bicicletas o
+   sin anclajes durante la siguiente hora?
+3. **P3 — Clustering:** ¿qué grupos de estaciones presentan patrones de uso similares en
+   volumen, balance, horario, fin de semana, duración y viajes redondos?
+
+P1 y P2 usan particiones cronológicas y variables rezagadas para evitar información
+posterior al momento de predicción. P3 es descriptivo y resume únicamente el periodo de
+estudio configurado.
+
+## Datos y versionado
+
+La fuente es el [portal de datos abiertos de MiBici](https://www.mibici.net/es/datos-abiertos),
+replicado en una carpeta pública de Google Drive para automatizar la descarga. Se utilizan
+los 13 archivos mensuales de septiembre de 2025 a septiembre de 2026 y la nomenclatura de
+estaciones de septiembre de 2026. No se procesan atributos personales.
+
+La ingesta detecta codificación, normaliza columnas y tipos, valida fechas e identificadores,
+elimina registros no válidos según las reglas documentadas y escribe Parquet con compresión.
+`references/manifest_clustering.json`, versionado en Git, registra para cada fuente el número
+de filas, tamaño, codificación y SHA-256. Su `version_datos` se calcula con esos hashes y se
+registra en MLflow; P1 y P2 registran también sus versiones de datos correspondientes.
+
+## Instalación
+
+```bash
+git clone https://github.com/dianitavazquez/TC5061-MiBici-Equipo50.git
+cd TC5061-MiBici-Equipo50
+python3.12 -m venv .venv
+source .venv/bin/activate
+make requirements
+```
+
+El proyecto requiere Python 3.12 y MLflow 3.17.1.
+
+## Ejecución reproducible
+
+La ingesta completa no requiere descargar archivos manualmente:
+
+```bash
+# Descarga los meses seleccionados y la nomenclatura, limpia, convierte a Parquet
+# y genera los manifiestos con conteos y hashes.
+python -m mibici_ml.dataset prepare
+
+# Construye las variables reutilizables.
+python -m mibici_ml.features build-p1
+python -m mibici_ml.features build-p3
+
+# Ejecuta los experimentos base y candidatos.
+python -m mibici_ml.modeling.train train-p1
+python -m mibici_ml.modeling.train train-p2
+python -m mibici_ml.modeling.train train-p3
+```
+
+La pipeline completa, desde la descarga hasta los tres entrenamientos, se ejecuta con:
+
+```bash
+make pipeline
+make mlflow-ui
+```
+
+La UI queda disponible en <http://127.0.0.1:5000> y los runs se agrupan en el experimento
+`mibici-equipo50`.
+
+## Flujo de trabajo con Git y GitHub
+
+Se utiliza **GitHub Flow** con estas reglas:
+
+1. `main` es la rama estable y debe estar protegida contra pushes directos y force-push.
+2. Cada cambio comienza desde `main` actualizado en una rama corta con formato
+   `<tipo>/<descripcion>-<iniciales>`, por ejemplo `feature/p2-balanceo-aavm`,
+   `fix/ingesta-cavm` o `docs/readme-dcvd`.
+3. Los commits siguen **Conventional Commits**: `tipo(scope): descripción`. Los tipos
+   principales son `feat`, `fix`, `docs`, `refactor`, `test`, `build` y `chore`.
+4. La rama se publica y todo cambio entra mediante Pull Request; no se integra código
+   directamente en `main`.
+5. El PR debe describir objetivo y validaciones, resolver las conversaciones y recibir al
+   menos una aprobación de otro integrante. No puede aprobarlo la última persona que hizo
+   push.
+6. Cada integrante debe abrir al menos un PR y revisar al menos un PR ajeno. Tras aprobarse,
+   se integra con **squash merge** y se elimina la rama.
+
+La regla de protección de `main` debe exigir un PR, una aprobación, descartar aprobaciones
+obsoletas, requerir aprobación posterior al último push, resolver conversaciones y bloquear
+force-pushes y eliminaciones. Se configura en **Settings → Branches → Branch protection
+rules** por la persona administradora del repositorio.
+
+Comandos de inicio de un cambio:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git switch -c feature/descripcion-iniciales
+```
+
+## Equipo
+
+| Integrante | Rol principal | Pregunta |
+|---|---|---|
+| Diana Vázquez | Ingesta y modelado de regresión | P1 |
+| Anuar Vargas | Clasificación, arquitectura e integración | P2 |
+| César Valladares | Ingesta, features y modelado de clustering | P3 |
+
+La responsabilidad de revisión es cruzada: ningún integrante revisa únicamente su propio
+trabajo y la evidencia queda registrada en la pestaña **Pull requests** de GitHub.
 
 ## Clasificador P2
 
@@ -17,12 +127,7 @@ El análisis exploratorio se encuentra en
 calidad, demanda por hora, estaciones con más salidas y distribución de capacidades.
 
 ```bash
-# Requiere Python 3.12. No utilizar un entorno creado con Python 3.9.
-python3.12 -m venv .venv
-source .venv/bin/activate
-make requirements
-python -m mibici_ml.dataset download-drive
-python -m mibici_ml.dataset profile
+python -m mibici_ml.dataset prepare
 python -m mibici_ml.modeling.train train-p2
 make mlflow-ui
 ```
@@ -120,18 +225,17 @@ En esta parte agrupo las estaciones de MiBici según cómo se usan, para ver qu�
 
 ### Cómo correrlo
 
-1. Descargo del portal los 13 archivos `datos_abiertos_2025_09.csv` a `datos_abiertos_2026_09.csv` y `nomenclatura_2026_09.csv`, y los pongo en `data/raw/`.
-2. Desde la raíz del repo, con el entorno activado, corro:
+1. Desde la raíz del repo, con el entorno activado, corro la descarga e ingesta automática:
 
 ```bash
-python -m mibici_ml.dataset prepare-p3
+python -m mibici_ml.dataset prepare
 python -m mibici_ml.features build-p3
 python -m mibici_ml.modeling.train train-p3
 python -m mibici_ml.modeling.train train-p3 --model candidato --k 3 --k 5 --k 6
 make mlflow-ui
 ```
 
-3. Abro http://127.0.0.1:5000 y entro al experimento `mibici-equipo50`.
+2. Abro http://127.0.0.1:5000 y entro al experimento `mibici-equipo50`.
 
 ### Qué hace cada archivo
 

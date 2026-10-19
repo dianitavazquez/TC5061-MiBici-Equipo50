@@ -131,8 +131,7 @@ visita innecesaria frente a un desabasto omitido.
 
 ```bash
 make requirements
-python -m mibici_ml.dataset download-drive
-python -m mibici_ml.dataset profile
+python -m mibici_ml.dataset prepare
 python -m mibici_ml.modeling.train train-p2
 make mlflow-ui
 ```

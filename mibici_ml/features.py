@@ -1,4 +1,4 @@
-"""Feature and target construction for the station-hour P2 classifier."""
+"""Reusable, leakage-safe feature engineering for the three MiBici questions."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from mibici_ml.config import (
     CLUSTERING_FEATURES_FILE,
     CLUSTERING_MIN_ACTIVE_DAYS,
     CLUSTERING_STATIONS_CLEAN_FILE,
+    CLUSTERING_TRIP_FILES,
     CLUSTERING_TRIPS_FILE,
     P1_FEATURES_FILE,
     P1_TRIPS_FILE,
@@ -35,13 +36,19 @@ P3_HOUR_TO_RANGE = {
 
 
 def load_clean_trips(raw_dir: Path) -> tuple[pd.DataFrame, dict[str, int]]:
-    """Load only operational columns and apply the documented quality rules."""
+    """Load valid trip events used to estimate P2 station demand pressure.
+
+    Personal attributes are excluded because the operational question only depends on
+    station movements. Invalid dates, negative durations, and same-station events are
+    removed before constructing hourly labels.
+    """
     frames = []
-    for path in sorted(raw_dir.glob("datos_abiertos_*.csv")):
+    for name in CLUSTERING_TRIP_FILES:
+        path = raw_dir / name
+        if not path.exists():
+            raise FileNotFoundError(f"No existe el archivo seleccionado {path}")
         frame = read_csv_compatible(path, usecols=TRIP_COLUMNS)
         frames.append(frame)
-    if not frames:
-        raise FileNotFoundError(f"No hay archivos datos_abiertos_*.csv en {raw_dir}")
 
     trips = pd.concat(frames, ignore_index=True)
     raw_rows = len(trips)
@@ -94,7 +101,12 @@ def build_station_hour_dataset(
     stations: pd.DataFrame,
     alpha: float = 0.5,
 ) -> pd.DataFrame:
-    """Build one-hour-ahead features and two demand-pressure proxy labels."""
+    """Build P2 station-hour predictors and two demand-pressure proxy labels.
+
+    Demand history is shifted by one hour before rolling statistics are calculated, so
+    every predictor is available before the hour being classified and cannot leak its
+    departures, arrivals, or labels.
+    """
     if not 0 < alpha <= 1:
         raise ValueError("alpha debe estar en el intervalo (0, 1].")
 
@@ -169,7 +181,12 @@ def build_station_hour_dataset(
 
 
 def build_hourly_features(trips: pd.DataFrame) -> pd.DataFrame:
-    """Build station-hour demand targets and leakage-safe time features."""
+    """Build the P1 hourly departure target and lagged demand predictors.
+
+    Calendar variables capture recurring usage patterns. Lags and rolling means contain
+    only completed hours, making them pertinent for forecasting the next-hour demand
+    without using future observations.
+    """
     required_columns = {TIMESTAMP_COL, STATION_COL}
     missing = required_columns - set(trips.columns)
 
@@ -281,7 +298,7 @@ def build_p1_command(
 
 
 def count_active_days(trips: pd.DataFrame) -> pd.Series:
-    """Count days with a departure or arrival at each station."""
+    """Count P3 active days so station volumes can be normalized by data coverage."""
     day = trips["inicio"].dt.normalize()
     days = pd.concat(
         [
@@ -293,7 +310,13 @@ def count_active_days(trips: pd.DataFrame) -> pd.Series:
 
 
 def build_station_profile(trips: pd.DataFrame) -> pd.DataFrame:
-    """Build the P3 usage profile with one row per station."""
+    """Build the P3 behavioral profile used to group similar stations.
+
+    Volume per active day, flow balance, time-of-day proportions, weekend use, round
+    trips, and duration distinguish commuter, recreational, origin, and destination
+    patterns. P3 is descriptive rather than predictive, so the configured study period
+    is summarized in full and no future prediction information is involved.
+    """
     origin = trips["origen_id"].rename("estacion_id")
     destination = trips["destino_id"].rename("estacion_id")
     profile = (
@@ -323,7 +346,7 @@ def build_station_profile(trips: pd.DataFrame) -> pd.DataFrame:
 def filter_station_profile(
     profile: pd.DataFrame, stations: pd.DataFrame
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    """Filter inactive P3 stations and stations with insufficient history."""
+    """Remove inactive or low-coverage P3 stations whose profiles are unreliable."""
     summary = {"estaciones_nomenclatura": len(stations)}
     profile = stations.merge(profile, on="estacion_id", how="inner")
     summary["sin_viajes"] = summary["estaciones_nomenclatura"] - len(profile)

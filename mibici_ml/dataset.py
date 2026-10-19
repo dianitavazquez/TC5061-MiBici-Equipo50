@@ -28,6 +28,7 @@ from mibici_ml.config import (
     P1_MANIFEST_FILE,
     P1_TRIPS_FILE,
     RAW_DATA_DIR,
+    SELECTED_SOURCE_FILES,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -111,12 +112,12 @@ def download_drive_data(
     folder_id: str = DEFAULT_FOLDER_ID,
     force: bool = False,
 ) -> dict:
-    """Download CSV files and write a checksummed local manifest."""
-    entries = [
-        item for item in list_public_drive_folder(folder_id) if item["name"].endswith(".csv")
-    ]
-    if not entries:
-        raise RuntimeError("La carpeta no contiene archivos CSV públicos.")
+    """Download exactly the selected months and station catalog, then hash each source."""
+    available = {item["name"]: item for item in list_public_drive_folder(folder_id)}
+    missing = [name for name in SELECTED_SOURCE_FILES if name not in available]
+    if missing:
+        raise RuntimeError(f"Faltan archivos seleccionados en Google Drive: {', '.join(missing)}")
+    entries = [available[name] for name in SELECTED_SOURCE_FILES]
 
     manifest_entries = []
     for entry in entries:
@@ -156,9 +157,10 @@ def read_csv_compatible(path: Path, **kwargs) -> pd.DataFrame:
 
 def profile_raw_data(input_dir: Path = RAW_DATA_DIR) -> dict:
     """Calculate the actual row, station, date, and quality counts."""
-    files = sorted(input_dir.glob("datos_abiertos_*.csv"))
-    if not files:
-        raise FileNotFoundError(f"No hay archivos de viajes en {input_dir}")
+    files = [input_dir / name for name in CLUSTERING_TRIP_FILES]
+    missing = [path.name for path in files if not path.exists()]
+    if missing:
+        raise FileNotFoundError(f"Faltan archivos seleccionados: {', '.join(missing)}")
 
     stations: set[int] = set()
     total_rows = 0
@@ -211,7 +213,7 @@ def download_drive_command(
     folder_id: str = DEFAULT_FOLDER_ID,
     force: bool = False,
 ):
-    """Download all public CSV files from the project Drive folder."""
+    """Download the selected monthly trips and station catalog."""
     manifest = download_drive_data(output_dir, folder_id, force)
     logger.success(f"Versión de datos: {manifest['data_version']}")
 
@@ -227,7 +229,7 @@ def profile_command(input_dir: Path = RAW_DATA_DIR):
 
 
 def read_trip_file(path: Path) -> tuple[pd.DataFrame, str]:
-    """Read a monthly trips CSV using a supported encoding."""
+    """Read a monthly trips CSV while detecting its supported character encoding."""
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
             df = pd.read_csv(path, encoding=encoding)
@@ -245,10 +247,10 @@ def ingest(
     manifest_path: Path = P1_MANIFEST_FILE,
 ):
     """Validate, deduplicate, and save monthly MiBici trip data."""
-    input_files = sorted(input_dir.glob("datos_abiertos_*.csv"))
-
-    if not input_files:
-        raise FileNotFoundError(f"No monthly trips files found in {input_dir}")
+    input_files = [input_dir / name for name in CLUSTERING_TRIP_FILES]
+    missing_files = [path.name for path in input_files if not path.exists()]
+    if missing_files:
+        raise FileNotFoundError(f"Missing selected trip files: {', '.join(missing_files)}")
 
     logger.info("Found {} monthly files", len(input_files))
 
@@ -259,6 +261,15 @@ def ingest(
         logger.info("Processing {}", path.name)
 
         df, encoding = read_trip_file(path)
+
+        canonical_columns = {normalize_column(column): column for column in REQUIRED_COLUMNS}
+        df = df.rename(
+            columns={
+                column: canonical_columns[normalize_column(column)]
+                for column in df.columns
+                if normalize_column(column) in canonical_columns
+            }
+        )
 
         missing_columns = sorted(set(REQUIRED_COLUMNS) - set(df.columns))
         if missing_columns:
@@ -287,6 +298,8 @@ def ingest(
 
         if df[["Origen_Id", "Destino_Id"]].isna().any().any():
             raise ValueError(f"{path.name} contains missing station IDs")
+        for column in ["Origen_Id", "Destino_Id"]:
+            df[column] = pd.to_numeric(df[column], errors="raise").astype("int32")
 
         # Deduplicate within each monthly file and record the row count.
         df = df.drop_duplicates(subset=["Viaje_Id"], keep="first")
@@ -457,9 +470,18 @@ def clean_p3_trips(
 
 
 def clean_p3_stations(path: Path) -> pd.DataFrame:
+    """Normalize station columns and enforce numeric identifiers and coordinates."""
     stations = pd.read_csv(path, encoding=detect_encoding(path))
     stations.columns = [normalize_column(column) for column in stations.columns]
     stations = stations.rename(columns=P3_STATION_COLUMNS)
+    missing = set(P3_STATION_COLUMNS.values()) - set(stations.columns)
+    if missing:
+        raise ValueError(f"{path.name} no tiene las columnas {sorted(missing)}")
+    stations["estacion_id"] = pd.to_numeric(stations["estacion_id"], errors="raise").astype(
+        "int32"
+    )
+    for column in ["latitud", "longitud", "capacidad"]:
+        stations[column] = pd.to_numeric(stations[column], errors="coerce")
     stations["zona"] = stations["nombre"].str.extract(r"(GDL|ZPN|TLQ)", expand=False)
     stations["activa"] = ~stations["nombre"].str.startswith("ex-")
     columns = ["estacion_id", "nombre", "zona", "latitud", "longitud", "capacidad", "activa"]
@@ -477,19 +499,19 @@ def describe_p3_file(path: Path, rows: int, encoding: str) -> dict:
 
 
 @app.command("prepare-p3")
-def prepare_p3() -> None:
+def prepare_p3(raw_dir: Path = RAW_DATA_DIR) -> None:
     """Clean and persist the station-clustering inputs and manifest."""
     required = [*CLUSTERING_TRIP_FILES, CLUSTERING_STATIONS_FILE]
-    missing = [name for name in required if not (RAW_DATA_DIR / name).exists()]
+    missing = [name for name in required if not (raw_dir / name).exists()]
     if missing:
-        raise FileNotFoundError(f"Faltan estos archivos en {RAW_DATA_DIR}: {', '.join(missing)}")
+        raise FileNotFoundError(f"Faltan estos archivos en {raw_dir}: {', '.join(missing)}")
 
-    station_path = RAW_DATA_DIR / CLUSTERING_STATIONS_FILE
+    station_path = raw_dir / CLUSTERING_STATIONS_FILE
     stations = clean_p3_stations(station_path)
     file_info = [describe_p3_file(station_path, len(stations), detect_encoding(station_path))]
     months = []
     for name in CLUSTERING_TRIP_FILES:
-        path = RAW_DATA_DIR / name
+        path = raw_dir / name
         monthly, encoding = read_p3_trips(path)
         logger.info(f"{name}: {len(monthly):,} viajes ({encoding})")
         months.append(monthly)
@@ -516,6 +538,23 @@ def prepare_p3() -> None:
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     logger.success(f"Datos P3 guardados; versión {manifest['version_datos']}")
+
+
+@app.command("prepare")
+def prepare_all_data(
+    output_dir: Path = RAW_DATA_DIR,
+    folder_id: str = DEFAULT_FOLDER_ID,
+    force: bool = False,
+) -> None:
+    """Download, profile, normalize, version, and persist all project datasets."""
+    manifest = download_drive_data(output_dir, folder_id, force)
+    profile = profile_raw_data(output_dir)
+    (output_dir / "profile.json").write_text(
+        json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    ingest(output_dir, P1_TRIPS_FILE, P1_MANIFEST_FILE)
+    prepare_p3(output_dir)
+    logger.success("Ingesta reproducible terminada; versión fuente {}", manifest["data_version"])
 
 
 if __name__ == "__main__":
