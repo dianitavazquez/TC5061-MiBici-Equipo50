@@ -1,6 +1,11 @@
 # Data
 /data/
 
+# Local experiment tracking
+/mlruns/
+/mlartifacts/
+/mlflow.db
+
 # Mac OS-specific storage files
 .DS_Store
 
