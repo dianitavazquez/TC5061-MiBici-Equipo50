@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 from urllib.request import Request, urlopen
@@ -13,7 +14,7 @@ from loguru import logger
 import pandas as pd
 import typer
 
-from mibici_ml.config import RAW_DATA_DIR
+from mibici_ml.config import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -184,6 +185,143 @@ def profile_command(input_dir: Path = RAW_DATA_DIR):
         json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     typer.echo(json.dumps(profile, indent=2, ensure_ascii=False))
+
+
+def read_trip_file(path: Path) -> tuple[pd.DataFrame, str]:
+    """Read a monthly trips CSV using a supported encoding."""
+    for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+        try:
+            df = pd.read_csv(path, encoding=encoding)
+            return df, encoding
+        except UnicodeDecodeError:
+            continue
+
+    raise ValueError(f"Could not decode file: {path.name}")
+
+
+@app.command("ingest")
+def ingest(
+    input_dir: Path = RAW_DATA_DIR,
+    output_path: Path = PROCESSED_DATA_DIR / "mibici_trips.parquet",
+    manifest_path: Path = PROCESSED_DATA_DIR / "manifest.json",
+):
+    """Validate, deduplicate, and save monthly MiBici trip data."""
+    input_files = sorted(input_dir.glob("datos_abiertos_*.csv"))
+
+    if not input_files:
+        raise FileNotFoundError(f"No monthly trips files found in {input_dir}")
+
+    logger.info("Found {} monthly files", len(input_files))
+
+    processed_frames = []
+    file_records = []
+
+    for path in input_files:
+        logger.info("Processing {}", path.name)
+
+        df, encoding = read_trip_file(path)
+
+        missing_columns = sorted(set(REQUIRED_COLUMNS) - set(df.columns))
+        if missing_columns:
+            raise ValueError(f"{path.name} is missing required columns: {missing_columns}")
+
+        original_rows = len(df)
+        duplicate_rows = int(df["Viaje_Id"].duplicated(keep="first").sum())
+
+        # Keep only the fields required for P1.
+        df = df[MODEL_COLUMNS].copy()
+
+        df["Inicio_del_viaje"] = pd.to_datetime(df["Inicio_del_viaje"], errors="coerce")
+        df["Fin_del_viaje"] = pd.to_datetime(df["Fin_del_viaje"], errors="coerce")
+
+        invalid_start = int(df["Inicio_del_viaje"].isna().sum())
+        invalid_end = int(df["Fin_del_viaje"].isna().sum())
+
+        if invalid_start or invalid_end:
+            raise ValueError(
+                f"{path.name} contains invalid timestamps: "
+                f"start={invalid_start}, end={invalid_end}"
+            )
+
+        if df["Viaje_Id"].isna().any():
+            raise ValueError(f"{path.name} contains missing Viaje_Id values")
+
+        if df[["Origen_Id", "Destino_Id"]].isna().any().any():
+            raise ValueError(f"{path.name} contains missing station IDs")
+
+        # Deduplicate within each monthly file and record the row count.
+        df = df.drop_duplicates(subset=["Viaje_Id"], keep="first")
+
+        duration_minutes = (df["Fin_del_viaje"] - df["Inicio_del_viaje"]).dt.total_seconds() / 60
+
+        record = {
+            "file": path.name,
+            "sha256": sha256_file(path),
+            "encoding": encoding,
+            "rows_original": original_rows,
+            "duplicate_rows_removed": duplicate_rows,
+            "rows_after_deduplication": len(df),
+            "invalid_start_timestamps": invalid_start,
+            "invalid_end_timestamps": invalid_end,
+            "negative_durations": int((duration_minutes < 0).sum()),
+            "durations_over_24_hours": int((duration_minutes > 1440).sum()),
+        }
+
+        file_records.append(record)
+        processed_frames.append(df)
+
+        logger.info(
+            "{}: {} rows -> {} rows; {} duplicates removed",
+            path.name,
+            original_rows,
+            len(df),
+            duplicate_rows,
+        )
+
+    trips = pd.concat(processed_frames, ignore_index=True)
+
+    # Validate IDs across the complete dataset as well.
+    cross_file_duplicates = int(trips["Viaje_Id"].duplicated(keep=False).sum())
+
+    if cross_file_duplicates:
+        raise ValueError(
+            "Repeated Viaje_Id values were found across monthly files. "
+            "Review the source data before continuing."
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    trips.to_parquet(output_path, index=False, compression="snappy")
+
+    manifest = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "dataset": output_path.name,
+        "dataset_sha256": sha256_file(output_path),
+        "source_directory": str(input_dir),
+        "source_files": file_records,
+        "summary": {
+            "source_files": len(input_files),
+            "rows_before_deduplication": sum(record["rows_original"] for record in file_records),
+            "duplicate_rows_removed": sum(
+                record["duplicate_rows_removed"] for record in file_records
+            ),
+            "rows_after_deduplication": len(trips),
+            "start_date": trips["Inicio_del_viaje"].min().isoformat(),
+            "end_date": trips["Inicio_del_viaje"].max().isoformat(),
+            "unique_origin_stations": int(trips["Origen_Id"].nunique()),
+            "unique_destination_stations": int(trips["Destino_Id"].nunique()),
+        },
+    }
+
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    logger.success("Parquet saved to {}", output_path)
+    logger.success("Manifest saved to {}", manifest_path)
+    logger.info("Final row count: {}", len(trips))
 
 
 if __name__ == "__main__":
