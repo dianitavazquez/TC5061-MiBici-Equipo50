@@ -9,13 +9,19 @@ import subprocess
 from loguru import logger
 import matplotlib.pyplot as plt
 import mlflow
+import joblib
+import matplotlib.pyplot as plt
 import mlflow.sklearn
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.dummy import DummyRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
     ConfusionMatrixDisplay,
     average_precision_score,
     f1_score,
@@ -28,7 +34,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import typer
 
-from mibici_ml.config import FIGURES_DIR, RAW_DATA_DIR
+from mibici_ml.config import FIGURES_DIR, RAW_DATA_DIR, MODELS_DIR, PROCESSED_DATA_DIR
 from mibici_ml.dataset import read_csv_compatible
 from mibici_ml.features import build_station_hour_dataset, load_clean_trips
 
@@ -227,6 +233,244 @@ def train_p2_baseline(
         )
 
     logger.success(json.dumps(metrics, indent=2))
+
+
+EXPERIMENT_NAME = "TC5061-Equipo50-P1-Regresion"
+
+FEATURE_COLUMNS = [
+    "station_id",
+    "hour",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "departures_lag_1",
+    "departures_lag_24",
+    "departures_lag_168",
+    "departures_mean_24",
+    "departures_mean_168",
+]
+
+
+def get_git_commit() -> str:
+    """Return the current Git commit, if available."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unknown"
+
+
+def evaluate_model(model, X_test, y_test):
+    """Evaluate a regression model using MAE and RMSE."""
+    predictions = model.predict(X_test)
+    # Demand cannot be negative.
+    predictions = predictions.clip(min=0)
+
+    return {
+        "mae": float(mean_absolute_error(y_test, predictions)),
+        "rmse": float(mean_squared_error(y_test, predictions) ** 0.5),
+    }, predictions
+
+
+@app.command("train-p1")
+def train_p1(
+    features_path: Path = PROCESSED_DATA_DIR / "p1_features.parquet",
+    manifest_path: Path = PROCESSED_DATA_DIR / "manifest.json",
+    model_path: Path = MODELS_DIR / "p1_regression_model.joblib",
+    test_fraction: float = 0.2,
+    tracking_uri: str = "sqlite:///mlflow.db",
+):
+    """Train and compare a baseline and a candidate regression model."""
+    if not 0 < test_fraction < 1:
+        raise ValueError("test_fraction must be between 0 and 1.")
+
+    if not features_path.exists():
+        raise FileNotFoundError(f"Features not found: {features_path}")
+
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+    logger.info("Reading features from {}", features_path)
+    df = pd.read_parquet(features_path)
+
+    required = set(FEATURE_COLUMNS + ["timestamp", "target_departures"])
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+
+    if df[FEATURE_COLUMNS + ["target_departures"]].isna().any().any():
+        raise ValueError("Features or target contain missing values.")
+
+    # Use a chronological split based on timestamps, not random rows.
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    timestamps = sorted(df["timestamp"].unique())
+
+    split_index = int(len(timestamps) * (1 - test_fraction))
+    if split_index <= 0 or split_index >= len(timestamps):
+        raise ValueError("Not enough timestamps for the requested split.")
+
+    cutoff = pd.Timestamp(timestamps[split_index])
+
+    train_df = df[df["timestamp"] < cutoff]
+    test_df = df[df["timestamp"] >= cutoff]
+
+    X_train = train_df[FEATURE_COLUMNS]
+    y_train = train_df["target_departures"]
+    X_test = test_df[FEATURE_COLUMNS]
+    y_test = test_df["target_departures"]
+
+    if train_df.empty or test_df.empty:
+        raise ValueError("The chronological split produced an empty partition.")
+
+    with manifest_path.open(encoding="utf-8") as file:
+        manifest = json.load(file)
+
+    dataset_version = manifest.get("dataset_sha256", "unknown")
+    git_commit = get_git_commit()
+
+    logger.info(
+        "Train rows: {}; test rows: {}; cutoff: {}",
+        f"{len(train_df):,}",
+        f"{len(test_df):,}",
+        cutoff,
+    )
+
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(EXPERIMENT_NAME)
+
+    # Candidate model: histogram-based gradient boosting.
+    candidate = HistGradientBoostingRegressor(
+        max_iter=100,
+        learning_rate=0.1,
+        max_leaf_nodes=31,
+        l2_regularization=1.0,
+        early_stopping=True,
+        random_state=42,
+    )
+
+    results = {}
+
+    models = {
+        "baseline_median": DummyRegressor(strategy="median"),
+        "hist_gradient_boosting": candidate,
+    }
+
+    for model_name, model in models.items():
+        logger.info("Training model: {}", model_name)
+
+        with mlflow.start_run(run_name=model_name):
+            mlflow.set_tags(
+                {
+                    "team": "Equipo50",
+                    "question": "P1",
+                    "task": "regression",
+                    "git_commit": git_commit,
+                    "dataset_version": dataset_version,
+                }
+            )
+
+            mlflow.log_params(
+                {
+                    "model_name": model_name,
+                    "dataset_version": dataset_version,
+                    "features_file": features_path.name,
+                    "train_start": str(train_df["timestamp"].min()),
+                    "train_end": str(train_df["timestamp"].max()),
+                    "test_start": str(test_df["timestamp"].min()),
+                    "test_end": str(test_df["timestamp"].max()),
+                    "split_strategy": "chronological",
+                    "test_fraction": test_fraction,
+                    "random_state": 42,
+                    "n_features": len(FEATURE_COLUMNS),
+                    "train_rows": len(train_df),
+                    "test_rows": len(test_df),
+                }
+            )
+
+            model.fit(X_train, y_train)
+            metrics, predictions = evaluate_model(model, X_test, y_test)
+
+            mlflow.log_metrics(
+                {
+                    "test_mae": metrics["mae"],
+                    "test_rmse": metrics["rmse"],
+                }
+            )
+
+            results[model_name] = {
+                "model": model,
+                "metrics": metrics,
+                "predictions": predictions,
+            }
+
+            # Log a sample plot to compare observed and predicted demand.
+            plot_path = Path("reports") / "figures" / f"{model_name}_p1.png"
+            plot_path.parent.mkdir(parents=True, exist_ok=True)
+
+            sample_size = min(5000, len(y_test))
+            sample = pd.DataFrame(
+                {
+                    "actual": y_test.iloc[:sample_size].to_numpy(),
+                    "predicted": predictions[:sample_size],
+                }
+            )
+
+            fig, ax = plt.subplots(figsize=(7, 6))
+            ax.scatter(
+                sample["actual"],
+                sample["predicted"],
+                alpha=0.25,
+                s=8,
+            )
+            ax.set_xlabel("Actual departures")
+            ax.set_ylabel("Predicted departures")
+            ax.set_title(f"P1: {model_name}")
+            fig.tight_layout()
+            fig.savefig(plot_path, dpi=150)
+            plt.close(fig)
+
+            mlflow.log_artifact(str(plot_path), artifact_path="plots")
+
+            if model_name == "hist_gradient_boosting":
+
+                mlflow.sklearn.log_model(
+                    model,
+                    name="model",
+                    serialization_format="cloudpickle",
+                )
+
+                model_path.parent.mkdir(parents=True, exist_ok=True)
+                joblib.dump(model, model_path)
+
+                mlflow.log_params(
+                    {
+                        "max_iter": model.max_iter,
+                        "learning_rate": model.learning_rate,
+                        "max_leaf_nodes": model.max_leaf_nodes,
+                        "l2_regularization": model.l2_regularization,
+                    }
+                )
+
+            logger.info(
+                "{}: MAE={:.4f}, RMSE={:.4f}",
+                model_name,
+                metrics["mae"],
+                metrics["rmse"],
+            )
+
+    comparison = pd.DataFrame(
+        [{"model": name, **result["metrics"]} for name, result in results.items()]
+    )
+
+    comparison_path = PROCESSED_DATA_DIR / "p1_model_comparison.csv"
+    comparison.to_csv(comparison_path, index=False)
+
+    logger.info("\n{}", comparison.to_string(index=False))
+    logger.success("Comparison saved to {}", comparison_path)
+    logger.success("Candidate model saved to {}", model_path)
 
 
 if __name__ == "__main__":

@@ -68,6 +68,11 @@ data: requirements
 	$(PYTHON_INTERPRETER) -m mibici_ml.dataset download-drive
 	$(PYTHON_INTERPRETER) -m mibici_ml.dataset profile
 
+## Train and track the P1 regression models in MLflow
+.PHONY: train-p1
+train-p1:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train train-p1
+
 ## Train and track the P2 baseline in MLflow
 .PHONY: train-p2
 train-p2:

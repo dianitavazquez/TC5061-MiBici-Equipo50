@@ -6,8 +6,16 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import typer
+from loguru import logger
 
+from mibici_ml.config import PROCESSED_DATA_DIR
 from mibici_ml.dataset import TRIP_COLUMNS, read_csv_compatible
+
+app = typer.Typer(no_args_is_help=True)
+
+TIMESTAMP_COL = "Inicio_del_viaje"
+STATION_COL = "Origen_Id"
 
 
 def load_clean_trips(raw_dir: Path) -> tuple[pd.DataFrame, dict[str, int]]:
@@ -142,3 +150,119 @@ def build_station_hour_dataset(
 
     # The current-hour counts and imbalances define the labels and must never be features.
     return panel.dropna().sort_values(["hour", "station_id"]).reset_index(drop=True)
+
+
+def build_hourly_features(trips: pd.DataFrame) -> pd.DataFrame:
+    """Build station-hour demand targets and leakage-safe time features."""
+    required_columns = {TIMESTAMP_COL, STATION_COL}
+    missing = required_columns - set(trips.columns)
+
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    data = trips[[TIMESTAMP_COL, STATION_COL]].copy()
+    data[TIMESTAMP_COL] = pd.to_datetime(data[TIMESTAMP_COL], errors="coerce")
+    data[STATION_COL] = pd.to_numeric(data[STATION_COL], errors="coerce")
+
+    data = data.dropna(subset=[TIMESTAMP_COL, STATION_COL])
+    data[STATION_COL] = data[STATION_COL].astype(int)
+
+    # Each trip contributes one departure to its station-hour.
+    data["timestamp"] = data[TIMESTAMP_COL].dt.floor("h")
+
+    hourly = (
+        data.groupby([STATION_COL, "timestamp"])
+        .size()
+        .rename("target_departures")
+        .reset_index()
+        .rename(columns={STATION_COL: "station_id"})
+    )
+
+    # Fill zero-departure hours only within each station's observed interval.
+    station_bounds = hourly.groupby("station_id")["timestamp"].agg(["min", "max"])
+    station_panels = []
+
+    for station_id, bounds in station_bounds.iterrows():
+        timestamps = pd.date_range(
+            start=bounds["min"],
+            end=bounds["max"],
+            freq="h",
+        )
+        station_panels.append(pd.DataFrame({"station_id": station_id, "timestamp": timestamps}))
+
+    complete_index = (
+        pd.concat(station_panels, ignore_index=True).set_index(["station_id", "timestamp"]).index
+    )
+
+    hourly = (
+        hourly.set_index(["station_id", "timestamp"])
+        .reindex(complete_index, fill_value=0)
+        .rename_axis(["station_id", "timestamp"])
+        .reset_index()
+        .sort_values(["station_id", "timestamp"])
+        .reset_index(drop=True)
+    )
+
+    hourly["hour"] = hourly["timestamp"].dt.hour
+    hourly["day_of_week"] = hourly["timestamp"].dt.dayofweek
+    hourly["month"] = hourly["timestamp"].dt.month
+    hourly["is_weekend"] = (hourly["day_of_week"] >= 5).astype("int8")
+
+    # Lag and rolling features use only previously completed hours.
+    grouped = hourly.groupby("station_id")["target_departures"]
+
+    hourly["departures_lag_1"] = grouped.shift(1)
+    hourly["departures_lag_24"] = grouped.shift(24)
+    hourly["departures_lag_168"] = grouped.shift(168)
+
+    hourly["departures_mean_24"] = grouped.transform(
+        lambda series: series.shift(1).rolling(window=24, min_periods=24).mean()
+    )
+
+    hourly["departures_mean_168"] = grouped.transform(
+        lambda series: series.shift(1).rolling(window=168, min_periods=168).mean()
+    )
+
+    # Initial rows lack sufficient history for all lag features.
+    feature_columns = [
+        "departures_lag_1",
+        "departures_lag_24",
+        "departures_lag_168",
+        "departures_mean_24",
+        "departures_mean_168",
+    ]
+    hourly = hourly.dropna(subset=feature_columns).reset_index(drop=True)
+
+    return hourly
+
+
+@app.command("build-p1")
+def build_p1_command(
+    input_path: Path = PROCESSED_DATA_DIR / "mibici_trips.parquet",
+    output_path: Path = PROCESSED_DATA_DIR / "p1_features.parquet",
+):
+    """Generate leakage-safe station-hour regression features."""
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input dataset not found: {input_path}")
+
+    logger.info("Reading trips from {}", input_path)
+    trips = pd.read_parquet(input_path)
+
+    logger.info("Building hourly station features")
+    features = build_hourly_features(trips)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    features.to_parquet(output_path, index=False, compression="snappy")
+
+    logger.success("Features saved to {}", output_path)
+    logger.info("Rows: {}", f"{len(features):,}")
+    logger.info("Stations: {}", features["station_id"].nunique())
+    logger.info(
+        "Time range: {} to {}",
+        features["timestamp"].min(),
+        features["timestamp"].max(),
+    )
+
+
+if __name__ == "__main__":
+    app()
