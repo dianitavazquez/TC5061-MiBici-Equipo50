@@ -2,8 +2,13 @@ black
 flake8
 isort
 loguru
+matplotlib
+mlflow==3.17.1
+numpy
+pandas
 pip
 python-dotenv
+scikit-learn
 tqdm
-typer
+typer>=0.12
 -e .

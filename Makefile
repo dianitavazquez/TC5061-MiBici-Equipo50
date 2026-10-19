@@ -4,16 +4,20 @@
 
 PROJECT_NAME = TC5061-MiBici-Equipo50
 PYTHON_VERSION = 3.12
-PYTHON_INTERPRETER = python
+PYTHON_INTERPRETER ?= python3
 
 #################################################################################
 # COMMANDS                                                                      #
 #################################################################################
 
 
+.PHONY: check-python
+check-python:
+	@$(PYTHON_INTERPRETER) -c 'import sys; expected=(3, 12); actual=sys.version_info[:2]; assert actual == expected, "Este proyecto requiere Python 3.12; se detectó %s.%s" % actual'
+
 ## Install Python dependencies
 .PHONY: requirements
-requirements:
+requirements: check-python
 	$(PYTHON_INTERPRETER) -m pip install -U pip
 	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
 	
@@ -61,7 +65,18 @@ create_environment:
 ## Make dataset
 .PHONY: data
 data: requirements
-	$(PYTHON_INTERPRETER) mibici_ml/dataset.py
+	$(PYTHON_INTERPRETER) -m mibici_ml.dataset download-drive
+	$(PYTHON_INTERPRETER) -m mibici_ml.dataset profile
+
+## Train and track the P2 baseline in MLflow
+.PHONY: train-p2
+train-p2:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train p2-baseline
+
+## Open the local MLflow tracking interface
+.PHONY: mlflow-ui
+mlflow-ui: check-python
+	$(PYTHON_INTERPRETER) -m mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 
 #################################################################################
