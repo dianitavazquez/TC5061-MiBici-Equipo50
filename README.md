@@ -23,7 +23,7 @@ source .venv/bin/activate
 make requirements
 python -m mibici_ml.dataset download-drive
 python -m mibici_ml.dataset profile
-python -m mibici_ml.modeling.train p2-baseline
+python -m mibici_ml.modeling.train train-p2
 make mlflow-ui
 ```
 
@@ -46,13 +46,18 @@ python -m mibici_ml.dataset prepare-p3
 python -m mibici_ml.features build-p1
 python -m mibici_ml.features build-p3
 python -m mibici_ml.modeling.train train-p1
-python -m mibici_ml.modeling.train p2-baseline
+python -m mibici_ml.modeling.train train-p2
 python -m mibici_ml.modeling.train train-p3
 ```
 
 La implementación centralizada está en `mibici_ml/config.py`, `dataset.py`, `features.py`,
 `plots.py` y `modeling/train.py`. El comando `all --no-prepare-data` reutiliza los Parquet ya
 generados cuando solo se necesita volver a entrenar.
+
+Los runs siguen la convención `p{n}-{variante}-{modelo}`. P1 compara
+`p1-baseline-median` con `p1-candidato-hist-gradient-boosting`; P2 compara regresión
+logística sin balanceo (`p2-baseline-logistic-regression`) contra la variante con
+`class_weight="balanced"` (`p2-candidato-logistic-regression`).
 
 Si `mlflow.db` reporta una revisión de Alembic desconocida, la terminal está usando
 otra versión de MLflow. Verifica `python --version` y `python -m mlflow --version`;

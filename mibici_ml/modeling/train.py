@@ -94,6 +94,10 @@ NUMERIC_FEATURES = [
     "month_cos",
     "is_weekend",
 ]
+P2_MODELS = {
+    "baseline": {"class_weight": None, "c": 1.0},
+    "candidato": {"class_weight": "balanced", "c": 1.0},
+}
 
 
 @app.callback()
@@ -115,7 +119,8 @@ def chronological_split(frame: pd.DataFrame, train_fraction: float = 0.8):
     return train, test, cutoff
 
 
-def build_pipeline() -> Pipeline:
+def build_pipeline(class_weight: str | None = None, c: float = 1.0) -> Pipeline:
+    """Build the P2 multi-output logistic-regression pipeline."""
     numeric = Pipeline(
         [("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]
     )
@@ -131,7 +136,8 @@ def build_pipeline() -> Pipeline:
             penalty="l2",
             solver="lbfgs",
             max_iter=1000,
-            class_weight="balanced",
+            class_weight=class_weight,
+            C=c,
         )
     )
     return Pipeline([("preprocessor", preprocessor), ("classifier", classifier)])
@@ -169,8 +175,7 @@ def read_data_version(raw_dir: Path) -> str:
     return json.loads(manifest_path.read_text(encoding="utf-8"))["data_version"]
 
 
-@app.command("p2-baseline")
-def train_p2_baseline(
+def train_p2(
     raw_dir: Path = RAW_DATA_DIR,
     date_start: str = P2_START_DATE,
     date_end: str = P2_END_DATE,
@@ -178,8 +183,13 @@ def train_p2_baseline(
     train_fraction: float = P2_TRAIN_FRACTION,
     experiment_name: str = MLFLOW_EXPERIMENT,
     tracking_uri: str = MLFLOW_TRACKING_URI,
-):
-    """Train both P2 proxy-risk labels and record the run in MLflow."""
+    models: tuple[str, ...] = tuple(P2_MODELS),
+) -> dict[str, dict]:
+    """Train and compare P2 configurations on the same chronological split."""
+    unknown = set(models) - set(P2_MODELS)
+    if unknown:
+        raise ValueError(f"Modelos P2 no válidos: {unknown}. Usa {list(P2_MODELS)}")
+
     logger.info("Cargando y limpiando viajes")
     trips, quality_counts = load_clean_trips(raw_dir)
     stations = read_csv_compatible(raw_dir / P2_STATIONS_FILE)
@@ -193,59 +203,82 @@ def train_p2_baseline(
     train, test, cutoff = chronological_split(frame, train_fraction)
 
     features = NUMERIC_FEATURES + CATEGORICAL_FEATURES
-    model = build_pipeline()
-    logger.info(f"Entrenando con {len(train):,} filas; evaluando con {len(test):,}")
-    model.fit(train[features], train[TARGETS])
-    predictions = model.predict(test[features])
-    probabilities = model.predict_proba(test[features])
-    metrics = evaluate(test[TARGETS], predictions, probabilities)
-
-    artifact_path = FIGURES_DIR / "p2_confusion_matrices.png"
-    save_confusion_matrices(test[TARGETS], predictions, TARGETS, artifact_path)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
-    with mlflow.start_run(run_name="P2-logistic-regression-demand-risk"):
-        mlflow.set_tags(
-            {
-                "team": "50",
-                "question": "P2",
-                "git_commit": git_commit(),
-                "target_type": "demand_pressure_proxy",
-            }
+    results = {}
+    for model_name in models:
+        config = P2_MODELS[model_name]
+        run_name = f"p2-{model_name}-logistic-regression"
+        model = build_pipeline(class_weight=config["class_weight"], c=config["c"])
+        logger.info(
+            "Entrenando {} con {:,} filas; evaluando con {:,}",
+            run_name,
+            len(train),
+            len(test),
         )
-        mlflow.log_params(
-            {
-                "model": "multioutput_logistic_regression",
-                "penalty": "l2",
-                "solver": "lbfgs",
-                "max_iter": 1000,
-                "class_weight": "balanced",
-                "alpha": alpha,
-                "horizon_hours": 1,
-                "date_start_inclusive": date_start,
-                "date_end_exclusive": date_end,
-                "train_fraction": train_fraction,
-                "split_cutoff": cutoff.isoformat(),
-                "data_start": frame["hour"].min().isoformat(),
-                "data_end": frame["hour"].max().isoformat(),
-                "data_version": read_data_version(raw_dir),
-                **quality_counts,
-                "train_rows": len(train),
-                "test_rows": len(test),
-            }
-        )
-        mlflow.log_metrics(metrics)
-        mlflow.log_artifact(str(artifact_path), artifact_path="figures")
-        for metadata_file in [raw_dir / "manifest.json", raw_dir / "profile.json"]:
-            if metadata_file.exists():
-                mlflow.log_artifact(str(metadata_file), artifact_path="data_metadata")
-        mlflow.sklearn.log_model(
-            model,
-            name="model",
-            serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
-        )
+        model.fit(train[features], train[TARGETS])
+        predictions = model.predict(test[features])
+        probabilities = model.predict_proba(test[features])
+        metrics = evaluate(test[TARGETS], predictions, probabilities)
+        artifact_path = FIGURES_DIR / f"{run_name}_confusion_matrices.png"
+        save_confusion_matrices(test[TARGETS], predictions, TARGETS, artifact_path)
 
-    logger.success(json.dumps(metrics, indent=2))
+        with mlflow.start_run(run_name=run_name):
+            mlflow.set_tags(
+                {
+                    "team": "50",
+                    "question": "P2",
+                    "task": "classification",
+                    "variant": model_name,
+                    "git_commit": git_commit(),
+                    "target_type": "demand_pressure_proxy",
+                }
+            )
+            mlflow.log_params(
+                {
+                    "model": "multioutput_logistic_regression",
+                    "penalty": "l2",
+                    "solver": "lbfgs",
+                    "max_iter": 1000,
+                    "class_weight": config["class_weight"] or "none",
+                    "C": config["c"],
+                    "alpha": alpha,
+                    "horizon_hours": 1,
+                    "date_start_inclusive": date_start,
+                    "date_end_exclusive": date_end,
+                    "train_fraction": train_fraction,
+                    "split_cutoff": cutoff.isoformat(),
+                    "data_start": frame["hour"].min().isoformat(),
+                    "data_end": frame["hour"].max().isoformat(),
+                    "data_version": read_data_version(raw_dir),
+                    **quality_counts,
+                    "train_rows": len(train),
+                    "test_rows": len(test),
+                }
+            )
+            mlflow.log_metrics(metrics)
+            mlflow.log_artifact(str(artifact_path), artifact_path="figures")
+            for metadata_file in [raw_dir / "manifest.json", raw_dir / "profile.json"]:
+                if metadata_file.exists():
+                    mlflow.log_artifact(str(metadata_file), artifact_path="data_metadata")
+            mlflow.sklearn.log_model(
+                model,
+                name="model",
+                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+            )
+        results[model_name] = metrics
+        logger.success("{}: {}", run_name, json.dumps(metrics))
+    return results
+
+
+@app.command("train-p2")
+def train_p2_command(
+    model: list[str] = typer.Option(
+        ["baseline", "candidato"], help="Configuración P2; se puede repetir"
+    ),
+) -> None:
+    """Train the P2 baseline and candidate configurations."""
+    train_p2(models=tuple(model))
 
 
 FEATURE_COLUMNS = [
@@ -353,8 +386,8 @@ def train_p1(
     results = {}
 
     models = {
-        "baseline_median": DummyRegressor(strategy="median"),
-        "hist_gradient_boosting": candidate,
+        "p1-baseline-median": DummyRegressor(strategy="median"),
+        "p1-candidato-hist-gradient-boosting": candidate,
     }
 
     for model_name, model in models.items():
@@ -413,7 +446,7 @@ def train_p1(
 
             mlflow.log_artifact(str(plot_path), artifact_path="plots")
 
-            if model_name == "hist_gradient_boosting":
+            if model_name == "p1-candidato-hist-gradient-boosting":
 
                 mlflow.sklearn.log_model(
                     model,
@@ -610,7 +643,7 @@ def train_all(prepare_data: bool = True) -> None:
     logger.info("Entrenando P1: regresión")
     train_p1(P1_FEATURES_FILE, P1_MANIFEST_FILE, P1_MODEL_FILE)
     logger.info("Entrenando P2: clasificación logística")
-    train_p2_baseline()
+    train_p2()
     logger.info("Entrenando P3: clustering")
     train_p3()
     logger.success("Pipeline P1 + P2 + P3 completado")

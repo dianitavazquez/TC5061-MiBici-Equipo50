@@ -113,11 +113,11 @@ los viajes que todavía no empiezan y usarla introduciría fuga temporal.
 
 - **Referencia mínima:** `DummyClassifier(strategy="prior")`, útil para comprobar que el
   modelo aporta señal frente a la prevalencia.
-- **Baseline implementado:** regresión logística regularizada. Es interpretable, entrega
-  probabilidades y establece una base reproducible.
-- **Candidato:** gradient boosting sobre histogramas, evaluado con validación temporal
-  walk-forward. Puede capturar interacciones no lineales entre horario, estación,
-  capacidad y demanda reciente.
+- **Baseline:** regresión logística regularizada sin ponderación de clases. Es
+  interpretable, entrega probabilidades y establece una referencia reproducible.
+- **Candidato:** la misma regresión logística con `class_weight="balanced"`. Mantener
+  iguales las variables, el split temporal y los demás hiperparámetros permite medir
+  directamente el efecto del balanceo sobre las clases minoritarias.
 
 La métrica principal es **F1** por objetivo porque los positivos son minoritarios y se
 necesita equilibrar alarmas falsas con riesgos omitidos. Se reportan además **recall**
@@ -133,11 +133,11 @@ visita innecesaria frente a un desabasto omitido.
 make requirements
 python -m mibici_ml.dataset download-drive
 python -m mibici_ml.dataset profile
-python -m mibici_ml.modeling.train p2-baseline
+python -m mibici_ml.modeling.train train-p2
 make mlflow-ui
 ```
 
-El experimento se llama `mibici-equipo50` y el run
-`P2-logistic-regression-demand-risk`. Incluye etiquetas `team`, `question` y
-`git_commit`; parámetros de fechas/versión; métricas; matrices de confusión; metadatos
-de datos y el modelo serializado.
+El experimento se llama `mibici-equipo50` y genera los runs
+`p2-baseline-logistic-regression` y `p2-candidato-logistic-regression`. Ambos incluyen
+etiquetas `team`, `question` y `git_commit`; parámetros de fechas/versión; métricas;
+matrices de confusión; metadatos de datos y el modelo serializado.
