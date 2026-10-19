@@ -23,9 +23,41 @@ source .venv/bin/activate
 make requirements
 python -m mibici_ml.dataset download-drive
 python -m mibici_ml.dataset profile
-python -m mibici_ml.modeling.train p2-baseline
+python -m mibici_ml.modeling.train train-p2
 make mlflow-ui
 ```
+
+## Pipeline unificada
+
+Los tres problemas comparten configuración, ingesta, construcción de variables, gráficas y
+tracking en el experimento `mibici-equipo50`. Para preparar los datos y ejecutar regresión
+(P1), clasificación logística (P2) y clustering (P3) en una sola corrida:
+
+```bash
+make pipeline
+make mlflow-ui
+```
+
+También se puede ejecutar cada etapa o modelo por separado:
+
+```bash
+python -m mibici_ml.dataset ingest
+python -m mibici_ml.dataset prepare-p3
+python -m mibici_ml.features build-p1
+python -m mibici_ml.features build-p3
+python -m mibici_ml.modeling.train train-p1
+python -m mibici_ml.modeling.train train-p2
+python -m mibici_ml.modeling.train train-p3
+```
+
+La implementación centralizada está en `mibici_ml/config.py`, `dataset.py`, `features.py`,
+`plots.py` y `modeling/train.py`. El comando `all --no-prepare-data` reutiliza los Parquet ya
+generados cuando solo se necesita volver a entrenar.
+
+Los runs siguen la convención `p{n}-{variante}-{modelo}`. P1 compara
+`p1-baseline-median` con `p1-candidato-hist-gradient-boosting`; P2 compara regresión
+logística sin balanceo (`p2-baseline-logistic-regression`) contra la variante con
+`class_weight="balanced"` (`p2-candidato-logistic-regression`).
 
 Si `mlflow.db` reporta una revisión de Alembic desconocida, la terminal está usando
 otra versión de MLflow. Verifica `python --version` y `python -m mlflow --version`;
@@ -92,21 +124,21 @@ En esta parte agrupo las estaciones de MiBici según cómo se usan, para ver qu�
 2. Desde la raíz del repo, con el entorno activado, corro:
 
 ```bash
-python -m mibici_ml.dataset_clustering
-python -m mibici_ml.features_clustering
-python -m mibici_ml.modeling.train_clustering
-python -m mibici_ml.modeling.train_clustering --modelo candidato --k 3 --k 5 --k 6
-mlflow ui --backend-store-uri sqlite:///mlflow.db
+python -m mibici_ml.dataset prepare-p3
+python -m mibici_ml.features build-p3
+python -m mibici_ml.modeling.train train-p3
+python -m mibici_ml.modeling.train train-p3 --model candidato --k 3 --k 5 --k 6
+make mlflow-ui
 ```
 
 3. Abro http://127.0.0.1:5000 y entro al experimento `mibici-equipo50`.
 
 ### Qué hace cada archivo
 
-1. `mibici_ml/dataset_clustering.py` lee los CSV, normaliza columnas, codificación y fechas, limpia los viajes y los guarda en Parquet en `data/interim/`. También escribe `references/manifest_clustering.json` con el SHA-256 de cada archivo y la versión de los datos (`faf7138becd5`). De 4,874,666 viajes quedan 4,718,830.
-2. `mibici_ml/features_clustering.py` arma el perfil de uso de cada estación (viajes por día activo, salidas por franja horaria, fin de semana, balance, viajes redondos y duración) y lo guarda en `data/processed/`. Quedan 468 estaciones.
-3. `mibici_ml/modeling/train_clustering.py` entrena el baseline y el modelo candidato y registra cada run en MLflow con sus parámetros, métricas, artefactos, el modelo y las etiquetas `equipo`, `pregunta` y `git_commit`.
-4. `mibici_ml/plots_clustering.py` hace el mapa de los grupos y el heatmap de su perfil. Se guardan en MLflow y en `reports/figures/`.
+1. `mibici_ml/dataset.py` lee los CSV, normaliza columnas, codificación y fechas, limpia los viajes y los guarda en Parquet en `data/interim/`. También escribe `references/manifest_clustering.json` con el SHA-256 de cada archivo y la versión de los datos (`faf7138becd5`). De 4,874,666 viajes quedan 4,718,830.
+2. `mibici_ml/features.py` arma el perfil de uso de cada estación (viajes por día activo, salidas por franja horaria, fin de semana, balance, viajes redondos y duración) y lo guarda en `data/processed/`. Quedan 468 estaciones.
+3. `mibici_ml/modeling/train.py` entrena el baseline y el modelo candidato y registra cada run en MLflow con sus parámetros, métricas, artefactos, el modelo y las etiquetas `team`, `question` y `git_commit`.
+4. `mibici_ml/plots.py` contiene las gráficas de los tres modelos, incluido el mapa de los grupos y el heatmap de su perfil. Se guardan en MLflow y en `reports/figures/`.
 5. `notebooks/1.0-cavm-eda-clustering.ipynb` tiene la exploración de las duraciones que usé para definir las reglas de limpieza.
 
 Todas las rutas, fechas y la semilla están en `mibici_ml/config.py`.
@@ -139,4 +171,3 @@ Con k=4 salen estos grupos:
 ![Mapa de los grupos](reports/figures/p3-candidato-kmeans-k4_mapa_grupos.png)
 
 ![Perfil de los grupos](reports/figures/p3-candidato-kmeans-k4_perfil_grupos.png)
-
