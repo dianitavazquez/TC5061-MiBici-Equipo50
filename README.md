@@ -73,10 +73,7 @@ contiene los experimentos registrados.
     │
     ├── modeling                
     │   ├── __init__.py 
-    │   ├── predict.py          <- Code to run model inference with trained models          
     │   └── train.py            <- Code to train models
-    │
-    └── plots.py                <- Code to create visualizations
 ```
 
 --------
