@@ -44,35 +44,122 @@ make requirements
 ```
 
 El proyecto requiere Python 3.12 y MLflow 3.17.1.
+`cryptography` se fija en 44.0.3 porque incluye wheels para Python 3.12 tanto en macOS
+Intel como Apple Silicon; así la instalación no requiere compilar Rust/OpenSSL localmente.
 
-## Ejecución reproducible
+## Ejecución reproducible con MLflow Project
 
-La ingesta completa no requiere descargar archivos manualmente:
+Todas las corridas de esta entrega se lanzan desde `MLproject`. `python_env.yaml` usa Python
+3.12.7 y el mismo `requirements.txt` con dependencias fijas; MLflow crea y reutiliza ese
+entorno automáticamente.
 
-```bash
-# Descarga los meses seleccionados y la nomenclatura, limpia, convierte a Parquet
-# y genera los manifiestos con conteos y hashes.
-python -m mibici_ml.dataset prepare
+### 1. Servidor local de tracking y Model Registry
 
-# Construye las variables reutilizables.
-python -m mibici_ml.features build-p1
-python -m mibici_ml.features build-p3
-
-# Ejecuta los experimentos base y candidatos.
-python -m mibici_ml.modeling.train train-p1
-python -m mibici_ml.modeling.train train-p2
-python -m mibici_ml.modeling.train train-p3
-```
-
-La pipeline completa, desde la descarga hasta los tres entrenamientos, se ejecuta con:
+Después de instalar las dependencias, inicia el servidor desde la raíz del repositorio en
+una terminal y déjalo activo:
 
 ```bash
-make pipeline
-make mlflow-ui
+python -m mlflow server \
+  --backend-store-uri sqlite:///mlflow.db \
+  --default-artifact-root ./mlartifacts \
+  --host 127.0.0.1 \
+  --port 5050
 ```
 
-La UI queda disponible en <http://127.0.0.1:5000> y los runs se agrupan en el experimento
-`mibici-equipo50`.
+La base SQLite respalda el tracking y el Model Registry; `mlflow.db`, `mlruns/` y
+`mlartifacts/` son archivos locales ignorados por Git. La UI queda disponible en
+<http://127.0.0.1:5050>.
+
+En una segunda terminal, activa el entorno y apunta todos los clientes al servidor:
+
+```bash
+source .venv/bin/activate
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5050
+export MLFLOW_EXPERIMENT_NAME=mibici-equipo50
+```
+
+La segunda variable hace que la corrida creada por `mlflow run` y los artefactos del
+entrenamiento queden en el mismo experimento configurado por el proyecto.
+
+También se puede iniciar el mismo servidor con `make mlflow-ui`.
+
+### 2. Ingesta y features
+
+La ingesta descarga los archivos seleccionados, genera perfiles y manifiestos con hashes,
+limpia los datos y escribe los Parquet. No requiere descargas manuales:
+
+```bash
+mlflow run . -e ingest
+mlflow run . -e features -P question=p1
+mlflow run . -e features -P question=p3
+```
+
+P2 construye sus variables estación-hora durante el entrenamiento, por lo que no necesita
+una etapa de features persistida.
+
+### 3. Modelos elegidos para P1, P2 y P3
+
+El parámetro `hyperparameters` es un objeto JSON. Si se omite, el código toma los valores
+centrales de `mibici_ml/config.py`; el `MLproject` no repite rutas, fechas ni semillas.
+Desde un clon limpio, después de ejecutar la ingesta y las features anteriores, los modelos
+elegidos se reproducen con:
+
+```bash
+# P1: HistGradientBoostingRegressor candidato
+mlflow run . -e train -P question=p1 -P model=candidato \
+  -P 'hyperparameters={"max_iter":100,"learning_rate":0.1,"max_leaf_nodes":31,"l2_regularization":1.0}'
+
+# P2: regresión logística multisalida con clases balanceadas
+mlflow run . -e train -P question=p2 -P model=candidato \
+  -P 'hyperparameters={"c":1.0,"class_weight":"balanced","max_iter":1000}'
+
+# P3: K-Means candidato con cuatro grupos
+mlflow run . -e train -P question=p3 -P model=candidato \
+  -P 'hyperparameters={"k":4,"n_init":10}'
+```
+
+Para usar todos los valores por defecto basta, por ejemplo, con:
+
+```bash
+mlflow run . -e train -P question=p2 -P model=candidato
+```
+
+Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 se admiten `baseline`,
+`candidato-1`, `candidato-2` y `candidato-3`; `candidato` se conserva como alias del
+primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
+un error explícito.
+
+### Búsqueda organizada de P2
+
+La comparación definitiva de P2 se ejecuta con un solo comando:
+
+```bash
+mlflow run . -e p2-search
+```
+
+La corrida padre `p2-logistic-class-weight-search` tiene `stage_of_work=search` y contiene
+cuatro corridas hijas sobre exactamente el mismo corte cronológico: el baseline sin pesos y
+tres candidatos con `class_weight` balanceado, peso positivo 2× y peso positivo 5×. Cada
+hija registra las métricas P2 originales, estabilidad mensual, tiempo de ajuste e inferencia,
+el modelo con firma y ejemplo, lineage del conjunto agregado estación-hora, manifiesto,
+configuración, matrices de confusión y curvas precisión-recall. El padre guarda la tabla
+comparativa y la justificación del modelo marcado con `selected_for_production=true`.
+
+La búsqueda ejecutada sobre la versión de datos `928ac1753461` produjo:
+
+| Modelo | Peso clase positiva | Macro-F1 | F1 sin bicis | F1 sin anclajes | Mínimo macro-F1 mensual | Ajuste (s) |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline | 1× | 0.1474 | 0.1408 | 0.1540 | 0.1404 | 37.0 |
+| Candidato 1 | balanced | 0.0253 | 0.0198 | 0.0308 | 0.0212 | 168.5 |
+| Candidato 2 | 2× | 0.1684 | 0.1481 | 0.1886 | 0.1601 | 41.7 |
+| **Candidato 3** | **5×** | **0.2068** | **0.1718** | **0.2418** | **0.1936** | 85.6 |
+
+Se seleccionó el candidato 3: mejora macro-F1 en 0.0594 puntos (40.3% relativo) frente al
+baseline y su peor mes todavía supera al peor mes del baseline. Requiere más tiempo de
+ajuste, pero la inferencia del conjunto de prueba fue prácticamente igual (2.48 s contra
+2.50 s), por lo que no añade costo relevante en operación. Está registrado como versión 1
+de `mibici-equipo50-p2-riesgo`, con alias `champion`. Puede cargarse mediante
+`models:/mibici-equipo50-p2-riesgo@champion`.
 
 ## Flujo de trabajo con Git y GitHub
 
@@ -127,37 +214,26 @@ El análisis exploratorio se encuentra en
 calidad, demanda por hora, estaciones con más salidas y distribución de capacidades.
 
 ```bash
-python -m mibici_ml.dataset prepare
-python -m mibici_ml.modeling.train train-p2
-make mlflow-ui
+mlflow run . -e ingest
+mlflow run . -e p2-search
 ```
 
 ## Pipeline unificada
 
 Los tres problemas comparten configuración, ingesta, construcción de variables, gráficas y
-tracking en el experimento `mibici-equipo50`. Para preparar los datos y ejecutar regresión
-(P1), clasificación logística (P2) y clustering (P3) en una sola corrida:
+tracking en el experimento `mibici-equipo50`. Cada etapa se ejecuta mediante el proyecto:
 
 ```bash
-make pipeline
-make mlflow-ui
-```
-
-También se puede ejecutar cada etapa o modelo por separado:
-
-```bash
-python -m mibici_ml.dataset ingest
-python -m mibici_ml.dataset prepare-p3
-python -m mibici_ml.features build-p1
-python -m mibici_ml.features build-p3
-python -m mibici_ml.modeling.train train-p1
-python -m mibici_ml.modeling.train train-p2
-python -m mibici_ml.modeling.train train-p3
+mlflow run . -e ingest
+mlflow run . -e features -P question=p1
+mlflow run . -e train -P question=p1 -P model=candidato
+mlflow run . -e p2-search
+mlflow run . -e features -P question=p3
+mlflow run . -e train -P question=p3 -P model=candidato
 ```
 
 La implementación centralizada está en `mibici_ml/config.py`, `dataset.py`, `features.py`,
-`plots.py` y `modeling/train.py`. El comando `all --no-prepare-data` reutiliza los Parquet ya
-generados cuando solo se necesita volver a entrenar.
+`plots.py`, `project.py` y `modeling/train.py`.
 
 Los runs siguen la convención `p{n}-{variante}-{modelo}`. P1 compara
 `p1-baseline-median` con `p1-candidato-hist-gradient-boosting`; P2 compara regresión
@@ -225,17 +301,16 @@ En esta parte agrupo las estaciones de MiBici según cómo se usan, para ver qu�
 
 ### Cómo correrlo
 
-1. Desde la raíz del repo, con el entorno activado, corro la descarga e ingesta automática:
+1. Desde la raíz del repo, con el servidor activo, corro la descarga e ingesta automática:
 
 ```bash
-python -m mibici_ml.dataset prepare
-python -m mibici_ml.features build-p3
-python -m mibici_ml.modeling.train train-p3
-python -m mibici_ml.modeling.train train-p3 --model candidato --k 3 --k 5 --k 6
-make mlflow-ui
+mlflow run . -e ingest
+mlflow run . -e features -P question=p3
+mlflow run . -e train -P question=p3 -P model=candidato \
+  -P 'hyperparameters={"k":4,"n_init":10}'
 ```
 
-2. Abro http://127.0.0.1:5000 y entro al experimento `mibici-equipo50`.
+2. Abro http://127.0.0.1:5050 y entro al experimento `mibici-equipo50`.
 
 ### Qué hace cada archivo
 

@@ -51,11 +51,13 @@ def test_clustering_metrics_use_shared_training_module():
 
 
 def test_p2_compares_unweighted_and_balanced_configurations():
-    assert set(P2_MODELS) == {"baseline", "candidato"}
+    assert set(P2_MODELS) == {"baseline", "candidato-1", "candidato-2", "candidato-3"}
     assert P2_MODELS["baseline"]["class_weight"] is None
-    assert P2_MODELS["candidato"]["class_weight"] == "balanced"
+    assert P2_MODELS["candidato-1"]["class_weight"] == "balanced"
+    assert P2_MODELS["candidato-2"]["class_weight"] == {0: 1.0, 1: 2.0}
+    assert P2_MODELS["candidato-3"]["class_weight"] == {0: 1.0, 1: 5.0}
 
     baseline = build_pipeline(**P2_MODELS["baseline"])
-    candidate = build_pipeline(**P2_MODELS["candidato"])
+    candidate = build_pipeline(**P2_MODELS["candidato-1"])
     assert baseline.named_steps["classifier"].estimator.class_weight is None
     assert candidate.named_steps["classifier"].estimator.class_weight == "balanced"
