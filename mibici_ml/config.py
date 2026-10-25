@@ -141,3 +141,13 @@ CLUSTERING_CANDIDATES = {
     },
 }
 CLUSTERING_REGISTERED_MODEL = "mibici-equipo50-p3-grupos"
+
+# Modelo elegido para producción (champion) y siguiente mejor (challenger)
+CLUSTERING_CHAMPION = "candidato-1"
+CLUSTERING_CHALLENGER = "candidato-2"
+CLUSTERING_REGISTERED_MODEL_DESCRIPTION = (
+    "Modelo de la pregunta 3: agrupa las estaciones de MiBici según su perfil de uso "
+    "(viajes por día, balance, franjas horarias, fin de semana, viajes redondos y "
+    "duración). El alias champion es la versión en producción y challenger la siguiente "
+    "mejor."
+)

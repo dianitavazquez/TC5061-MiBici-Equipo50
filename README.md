@@ -124,9 +124,9 @@ Para usar todos los valores por defecto basta, por ejemplo, con:
 mlflow run . -e train -P question=p2 -P model=candidato
 ```
 
-Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 se admiten `baseline`,
-`candidato-1`, `candidato-2` y `candidato-3`; `candidato` se conserva como alias del
-primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
+Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 y P3 se admiten
+`baseline`, `candidato-1`, `candidato-2` y `candidato-3`; `candidato` se conserva como alias
+del primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
 un error explícito.
 
 ### Búsqueda organizada de P2
@@ -350,3 +350,45 @@ Con k=4 salen estos grupos:
 ![Mapa de los grupos](reports/figures/p3-candidato-kmeans-k4_mapa_grupos.png)
 
 ![Perfil de los grupos](reports/figures/p3-candidato-kmeans-k4_perfil_grupos.png)
+
+### Experimentos y Model Registry
+
+Con el servidor de MLflow encendido y las variables `MLFLOW_TRACKING_URI` y `MLFLOW_EXPERIMENT_NAME` definidas (ver la sección del servidor), corro todo desde el MLflow Project:
+
+```bash
+mlflow run . -e ingest
+mlflow run . -e features -P question=p3
+mlflow run . -e p3-search
+mlflow run . -e train -P question=p3 -P model=baseline
+mlflow run . -e train -P question=p3 -P model=candidato-1
+mlflow run . -e train -P question=p3 -P model=candidato-2
+mlflow run . -e train -P question=p3 -P model=candidato-3
+mlflow run . -e p3-register
+```
+
+En Windows no hay `pyenv`, así que agrego `--env-manager local` a cada comando para usar el entorno `.venv` ya instalado con `requirements.txt`. En PowerShell las variables se definen con `$env:MLFLOW_TRACKING_URI="http://127.0.0.1:5050"` y `$env:MLFLOW_EXPERIMENT_NAME="mibici-equipo50"`.
+
+1. `p3-search` crea el run padre `p3-busqueda-kmeans-k` con un run hijo por cada k de 3 a 8.
+2. `train` entrena el baseline y los tres candidatos de `CLUSTERING_CANDIDATES` en `config.py`: K-Means con las 9 variables de uso, K-Means sin `prop_mediodia` (las cuatro franjas suman 1) y Gaussian Mixture. Los hiperparámetros se pueden cambiar, por ejemplo con `-P 'hyperparameters={"k":5}'`.
+3. Todos se evalúan con las métricas de la entrega anterior en el mismo espacio de 9 variables. Además mido la estabilidad: entreno 20 veces con el 80 % de las estaciones y comparo los grupos contra los del modelo completo con el índice de Rand ajustado (ARI).
+4. Cada run tiene las etiquetas `question`, `model_family` y `stage_of_work`. Los candidatos guardan el modelo con firma y ejemplo de entrada, el manifiesto y los grupos en `data/`, el mapa y los perfiles en `plots/` y la configuración en `config/`.
+5. `p3-register` registra el modelo elegido y el segundo mejor en el Model Registry y comprueba que el modelo en producción se puede cargar por su nombre.
+
+| Run | Silhouette ↑ | Davies-Bouldin ↓ | Calinski-Harabasz ↑ | Estabilidad (ARI) ↑ |
+|---|---|---|---|---|
+| p3-baseline-kmeans-k4 | 0.067 | 2.773 | 39.7 | 0.789 |
+| **p3-candidato-1-kmeans-k4** | **0.167** | **1.686** | **83.6** | **0.928** |
+| p3-candidato-2-kmeans-k4 | 0.158 | 1.765 | 79.5 | 0.889 |
+| p3-candidato-3-gmm-k4 | 0.118 | 1.855 | 71.3 | 0.843 |
+
+Elegí el candidato 1 porque es el mejor en las tres métricas y el más estable, así que planeación puede confiar en que una estación no cambia de grupo por quitar unas cuantas estaciones. En la búsqueda, k = 4 también es el más estable (0.93 contra 0.59 a 0.64 con otros valores de k). El costo no pesa en la decisión, porque todos entrenan en menos de un segundo.
+
+Para el ciclo de vida uso aliases, que es el esquema actual de MLflow (las etapas como Production ya son obsoletas). El modelo `mibici-equipo50-p3-grupos` tiene el alias `champion` para la versión en producción (candidato 1) y `challenger` para la siguiente mejor (candidato 2). Cada versión guarda su linaje como etiquetas: experimento, run de origen, commit de Git y versión de datos. El modelo en producción se carga así:
+
+```python
+import mlflow
+
+modelo = mlflow.sklearn.load_model("models:/mibici-equipo50-p3-grupos@champion")
+```
+
+Si después el challenger resulta mejor, basta con volver a registrar con `python -m mibici_ml.modeling.p3_experiments registrar --campeon candidato-2 --retador candidato-1` para mover los aliases, sin cambiar el código que carga el modelo.

@@ -10,6 +10,7 @@ Uso (desde la raíz del repo):
     python -m mibici_ml.modeling.p3_experiments buscar
     python -m mibici_ml.modeling.p3_experiments comparar
     python -m mibici_ml.modeling.p3_experiments entrenar --modelo candidato-1
+    python -m mibici_ml.modeling.p3_experiments registrar
 """
 
 import json
@@ -18,6 +19,7 @@ import time
 from loguru import logger
 from matplotlib.figure import Figure
 import mlflow
+from mlflow import MlflowClient
 from mlflow.models import infer_signature
 import mlflow.sklearn
 import numpy as np
@@ -30,10 +32,14 @@ import typer
 
 from mibici_ml.config import (
     CLUSTERING_CANDIDATES,
+    CLUSTERING_CHALLENGER,
+    CLUSTERING_CHAMPION,
     CLUSTERING_END_DATE,
     CLUSTERING_FEATURES_FILE,
     CLUSTERING_MANIFEST_FILE,
     CLUSTERING_MIN_ACTIVE_DAYS,
+    CLUSTERING_REGISTERED_MODEL,
+    CLUSTERING_REGISTERED_MODEL_DESCRIPTION,
     CLUSTERING_SEARCH_KS,
     CLUSTERING_SEED,
     CLUSTERING_STABILITY_FRACTION,
@@ -266,6 +272,71 @@ def entrenar_modelo(nombre, hiperparametros=None):
     return entrenar_y_registrar(nombre, config, cargar_datos(), etapa=etapa)
 
 
+def buscar_ultimo_run(cliente, nombre):
+    """Run más reciente de una configuración de P3, buscado por su etiqueta variant."""
+    experimento = cliente.get_experiment_by_name(MLFLOW_EXPERIMENT)
+    runs = cliente.search_runs(
+        [experimento.experiment_id],
+        filter_string=f"tags.question = 'P3' and tags.variant = '{nombre}'",
+        order_by=["attributes.start_time DESC"],
+        max_results=1,
+    )
+    if not runs:
+        raise ValueError(f"No hay runs de {nombre}. Corre primero el comando comparar.")
+    return runs[0]
+
+
+def registrar_version(cliente, run, alias):
+    """Registra el modelo de un run, guarda su linaje como etiquetas y le asigna un alias."""
+    modelos = mlflow.search_logged_models(
+        experiment_ids=[run.info.experiment_id],
+        filter_string=f"source_run_id = '{run.info.run_id}'",
+        output_format="list",
+    )
+    version = mlflow.register_model(modelos[0].model_uri, CLUSTERING_REGISTERED_MODEL)
+    linaje = {
+        "experimento": MLFLOW_EXPERIMENT,
+        "run_origen": run.info.run_name,
+        "run_id": run.info.run_id,
+        "git_commit": run.data.tags["git_commit"],
+        "version_datos": run.data.params["version_datos"],
+        "silhouette": f"{run.data.metrics['silhouette']:.3f}",
+        "estabilidad_ari_media": f"{run.data.metrics['estabilidad_ari_media']:.3f}",
+    }
+    for clave, valor in linaje.items():
+        cliente.set_model_version_tag(CLUSTERING_REGISTERED_MODEL, version.version, clave, valor)
+    cliente.update_model_version(
+        CLUSTERING_REGISTERED_MODEL,
+        version.version,
+        description=(
+            f"{alias}: run {run.info.run_name}, commit {linaje['git_commit'][:7]}, "
+            f"datos {linaje['version_datos']}"
+        ),
+    )
+    cliente.set_registered_model_alias(CLUSTERING_REGISTERED_MODEL, alias, version.version)
+    return version
+
+
+def registrar_modelos(campeon=CLUSTERING_CHAMPION, retador=CLUSTERING_CHALLENGER):
+    """Registra el champion y el challenger, y comprueba que el champion carga por su alias."""
+    preparar_mlflow()
+    cliente = MlflowClient()
+    for nombre, alias in [(campeon, "champion"), (retador, "challenger")]:
+        version = registrar_version(cliente, buscar_ultimo_run(cliente, nombre), alias)
+        logger.info(f"{nombre}: versión {version.version} con alias {alias}")
+    cliente.update_registered_model(
+        CLUSTERING_REGISTERED_MODEL, description=CLUSTERING_REGISTERED_MODEL_DESCRIPTION
+    )
+    cliente.set_registered_model_tag(CLUSTERING_REGISTERED_MODEL, "team", "50")
+    cliente.set_registered_model_tag(CLUSTERING_REGISTERED_MODEL, "question", "P3")
+
+    uri = f"models:/{CLUSTERING_REGISTERED_MODEL}@champion"
+    modelo = mlflow.sklearn.load_model(uri)
+    perfil, _, _ = cargar_datos()
+    grupos = modelo.predict(perfil[modelo.feature_names_in_].head(5))
+    logger.success(f"{uri} cargado; grupos de las primeras 5 estaciones: {grupos.tolist()}")
+
+
 @app.command("buscar")
 def buscar_command():
     """Búsqueda de k con nested runs."""
@@ -286,6 +357,15 @@ def comparar_command():
     """Entrena y registra el baseline y los tres candidatos."""
     for nombre in CLUSTERING_CANDIDATES:
         entrenar_modelo(nombre)
+
+
+@app.command("registrar")
+def registrar_command(
+    campeon: str = typer.Option(CLUSTERING_CHAMPION, help="Modelo para el alias champion"),
+    retador: str = typer.Option(CLUSTERING_CHALLENGER, help="Modelo para el alias challenger"),
+):
+    """Registra los modelos elegidos en el Model Registry y verifica la carga."""
+    registrar_modelos(campeon, retador)
 
 
 if __name__ == "__main__":
