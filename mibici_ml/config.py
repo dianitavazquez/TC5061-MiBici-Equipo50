@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -23,8 +24,11 @@ FIGURES_DIR = REPORTS_DIR / "figures"
 REFERENCES_DIR = PROJ_ROOT / "references"
 
 # Tracking compartido por los tres modelos
-MLFLOW_TRACKING_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
-MLFLOW_EXPERIMENT = "mibici-equipo50"
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5050")
+MLFLOW_EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT_NAME", "mibici-equipo50")
+
+# Defaults shared by the MLflow Project entry points and the Python training code.
+RANDOM_SEED = 42
 
 # P1: regresión de demanda
 P1_TRIPS_FILE = PROCESSED_DATA_DIR / "mibici_trips.parquet"
@@ -32,6 +36,11 @@ P1_MANIFEST_FILE = PROCESSED_DATA_DIR / "manifest.json"
 P1_FEATURES_FILE = PROCESSED_DATA_DIR / "p1_features.parquet"
 P1_MODEL_FILE = MODELS_DIR / "p1_regression_model.joblib"
 P1_COMPARISON_FILE = PROCESSED_DATA_DIR / "p1_model_comparison.csv"
+P1_TEST_FRACTION = 0.2
+P1_MAX_ITER = 100
+P1_LEARNING_RATE = 0.1
+P1_MAX_LEAF_NODES = 31
+P1_L2_REGULARIZATION = 1.0
 
 # P2: clasificación de presión de demanda
 P2_START_DATE = "2025-10-01"
@@ -39,6 +48,18 @@ P2_END_DATE = "2026-10-01"
 P2_ALPHA = 0.5
 P2_TRAIN_FRACTION = 0.8
 P2_STATIONS_FILE = "nomenclatura_2026_09.csv"
+P2_MAX_ITER = 1000
+P2_REGISTERED_MODEL_NAME = "mibici-equipo50-p2-riesgo"
+P2_REGISTERED_MODEL_DESCRIPTION = (
+    "Clasificador multisalida de la pregunta 2 para estimar, con horizonte de una hora, "
+    "el riesgo de presión por falta de bicicletas y por falta de anclajes en estaciones "
+    "MiBici. El alias champion identifica la versión aprobada para producción."
+)
+P2_SEARCH_MODELS = {
+    "candidato-1": {"class_weight": "balanced", "c": 1.0},
+    "candidato-2": {"class_weight": {0: 1.0, 1: 2.0}, "c": 1.0},
+    "candidato-3": {"class_weight": {0: 1.0, 1: 5.0}, "c": 1.0},
+}
 
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135
@@ -93,7 +114,9 @@ CLUSTERING_FEATURES_FILE = PROCESSED_DATA_DIR / "perfil_estaciones_clustering.pa
 CLUSTERING_MLFLOW_URI = MLFLOW_TRACKING_URI
 CLUSTERING_MLFLOW_EXPERIMENT = MLFLOW_EXPERIMENT
 
-CLUSTERING_SEED = 42
+CLUSTERING_SEED = RANDOM_SEED
+CLUSTERING_K = 4
+CLUSTERING_N_INIT = 10
 
 # P3: experimentación y Model Registry (segunda entrega)
 CLUSTERING_SEARCH_KS = [3, 4, 5, 6, 7, 8]  # búsqueda de k con nested runs
