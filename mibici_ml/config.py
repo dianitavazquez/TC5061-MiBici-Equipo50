@@ -94,3 +94,27 @@ CLUSTERING_MLFLOW_URI = MLFLOW_TRACKING_URI
 CLUSTERING_MLFLOW_EXPERIMENT = MLFLOW_EXPERIMENT
 
 CLUSTERING_SEED = 42
+
+# P3: experimentación y Model Registry (segunda entrega)
+CLUSTERING_SEARCH_KS = [3, 4, 5, 6, 7, 8]  # búsqueda de k con nested runs
+CLUSTERING_STABILITY_RUNS = 20  # repeticiones con submuestras para medir estabilidad
+CLUSTERING_STABILITY_FRACTION = 0.8  # porcentaje de estaciones en cada submuestra
+# Baseline y candidatos: algoritmo, conjunto de variables e hiperparámetros
+CLUSTERING_CANDIDATES = {
+    "baseline": {"algoritmo": "kmeans", "variables": "basico", "k": 4, "n_init": 10},
+    "candidato-1": {"algoritmo": "kmeans", "variables": "uso", "k": 4, "n_init": 10},
+    "candidato-2": {
+        "algoritmo": "kmeans",
+        "variables": "uso_sin_mediodia",
+        "k": 4,
+        "n_init": 10,
+    },
+    "candidato-3": {
+        "algoritmo": "gmm",
+        "variables": "uso",
+        "k": 4,
+        "n_init": 3,
+        "covariance_type": "diag",
+    },
+}
+CLUSTERING_REGISTERED_MODEL = "mibici-equipo50-p3-grupos"
