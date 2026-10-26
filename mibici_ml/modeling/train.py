@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import time
 
 import joblib
 from loguru import logger
 import mlflow
+from mlflow.models import infer_signature
 import mlflow.sklearn
 import numpy as np
 import pandas as pd
@@ -38,8 +40,10 @@ import typer
 from mibici_ml.config import (
     CLUSTERING_END_DATE,
     CLUSTERING_FEATURES_FILE,
+    CLUSTERING_K,
     CLUSTERING_MANIFEST_FILE,
     CLUSTERING_MIN_ACTIVE_DAYS,
+    CLUSTERING_N_INIT,
     CLUSTERING_SEED,
     CLUSTERING_START_DATE,
     FIGURES_DIR,
@@ -47,14 +51,25 @@ from mibici_ml.config import (
     MLFLOW_TRACKING_URI,
     P1_COMPARISON_FILE,
     P1_FEATURES_FILE,
+    P1_L2_REGULARIZATION,
+    P1_LEARNING_RATE,
     P1_MANIFEST_FILE,
+    P1_MAX_ITER,
+    P1_MAX_LEAF_NODES,
     P1_MODEL_FILE,
+    P1_TEST_FRACTION,
     P1_TRIPS_FILE,
     P2_ALPHA,
     P2_END_DATE,
+    P2_MAX_ITER,
+    P2_REGISTERED_MODEL_DESCRIPTION,
+    P2_REGISTERED_MODEL_NAME,
+    P2_SEARCH_MODELS,
     P2_START_DATE,
     P2_STATIONS_FILE,
     P2_TRAIN_FRACTION,
+    PROJ_ROOT,
+    RANDOM_SEED,
     RAW_DATA_DIR,
 )
 from mibici_ml.dataset import read_csv_compatible
@@ -63,6 +78,7 @@ from mibici_ml.plots import (
     plot_cluster_map,
     plot_cluster_profiles,
     save_confusion_matrices,
+    save_precision_recall_curves,
     save_regression_scatter,
 )
 
@@ -96,8 +112,9 @@ NUMERIC_FEATURES = [
 ]
 P2_MODELS = {
     "baseline": {"class_weight": None, "c": 1.0},
-    "candidato": {"class_weight": "balanced", "c": 1.0},
+    **P2_SEARCH_MODELS,
 }
+P2_MODEL_ALIASES = {"candidato": "candidato-1"}
 
 
 @app.callback()
@@ -105,7 +122,7 @@ def main():
     """Train MiBici models and register their experiments."""
 
 
-def chronological_split(frame: pd.DataFrame, train_fraction: float = 0.8):
+def chronological_split(frame: pd.DataFrame, train_fraction: float = P2_TRAIN_FRACTION):
     """Split by unique timestamps, preserving the future for evaluation."""
     if not 0 < train_fraction < 1:
         raise ValueError("train_fraction debe estar en el intervalo (0, 1).")
@@ -119,7 +136,9 @@ def chronological_split(frame: pd.DataFrame, train_fraction: float = 0.8):
     return train, test, cutoff
 
 
-def build_pipeline(class_weight: str | None = None, c: float = 1.0) -> Pipeline:
+def build_pipeline(
+    class_weight: str | dict | None = None, c: float = 1.0, max_iter: int = P2_MAX_ITER
+) -> Pipeline:
     """Build the P2 multi-output logistic-regression pipeline."""
     numeric = Pipeline(
         [("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]
@@ -135,7 +154,7 @@ def build_pipeline(class_weight: str | None = None, c: float = 1.0) -> Pipeline:
         LogisticRegression(
             penalty="l2",
             solver="lbfgs",
-            max_iter=1000,
+            max_iter=max_iter,
             class_weight=class_weight,
             C=c,
         )
@@ -175,21 +194,14 @@ def read_data_version(raw_dir: Path) -> str:
     return json.loads(manifest_path.read_text(encoding="utf-8"))["data_version"]
 
 
-def train_p2(
+def prepare_p2_data(
     raw_dir: Path = RAW_DATA_DIR,
     date_start: str = P2_START_DATE,
     date_end: str = P2_END_DATE,
     alpha: float = P2_ALPHA,
     train_fraction: float = P2_TRAIN_FRACTION,
-    experiment_name: str = MLFLOW_EXPERIMENT,
-    tracking_uri: str = MLFLOW_TRACKING_URI,
-    models: tuple[str, ...] = tuple(P2_MODELS),
-) -> dict[str, dict]:
-    """Train and compare P2 configurations on the same chronological split."""
-    unknown = set(models) - set(P2_MODELS)
-    if unknown:
-        raise ValueError(f"Modelos P2 no válidos: {unknown}. Usa {list(P2_MODELS)}")
-
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp, dict[str, int], pd.DataFrame]:
+    """Build P2 once so every candidate uses exactly the same chronological split."""
     logger.info("Cargando y limpiando viajes")
     trips, quality_counts = load_clean_trips(raw_dir)
     stations = read_csv_compatible(raw_dir / P2_STATIONS_FILE)
@@ -201,84 +213,379 @@ def train_p2(
         raise ValueError("date_start debe ser anterior a date_end.")
     frame = frame[frame["hour"].ge(start_timestamp) & frame["hour"].lt(end_timestamp)].copy()
     train, test, cutoff = chronological_split(frame, train_fraction)
+    return train, test, cutoff, quality_counts, frame
 
+
+def evaluate_monthly_stability(
+    test: pd.DataFrame, predictions: np.ndarray
+) -> tuple[dict[str, float], pd.DataFrame]:
+    """Summarize monthly F1 variability on the untouched chronological test partition."""
+    monthly_rows = []
+    months = test["hour"].dt.to_period("M").astype(str)
+    for month in sorted(months.unique()):
+        mask = months.eq(month).to_numpy()
+        target_scores = [
+            f1_score(test.loc[mask, target], predictions[mask, index], zero_division=0)
+            for index, target in enumerate(TARGETS)
+        ]
+        monthly_rows.append(
+            {
+                "month": month,
+                **dict(zip(TARGETS, target_scores)),
+                "macro_f1": np.mean(target_scores),
+            }
+        )
+    monthly = pd.DataFrame(monthly_rows)
+    stability = {
+        "monthly_macro_f1_mean": float(monthly["macro_f1"].mean()),
+        "monthly_macro_f1_std": float(monthly["macro_f1"].std(ddof=0)),
+        "monthly_macro_f1_min": float(monthly["macro_f1"].min()),
+    }
+    return stability, monthly
+
+
+def p2_run_config(
+    model_name: str,
+    model_config: dict,
+    cutoff: pd.Timestamp,
+    frame: pd.DataFrame,
+    train_rows: int,
+    test_rows: int,
+    quality_counts: dict[str, int],
+    raw_dir: Path,
+) -> dict:
+    """Return the complete, JSON-serializable configuration logged for a P2 run."""
+    return {
+        "question": "P2",
+        "model_name": model_name,
+        "model_family": "multioutput_logistic_regression",
+        "class_weight": model_config["class_weight"],
+        "C": model_config["c"],
+        "max_iter": model_config["max_iter"],
+        "penalty": "l2",
+        "solver": "lbfgs",
+        "alpha": P2_ALPHA,
+        "horizon_hours": 1,
+        "date_start_inclusive": P2_START_DATE,
+        "date_end_exclusive": P2_END_DATE,
+        "train_fraction": P2_TRAIN_FRACTION,
+        "split_cutoff": cutoff.isoformat(),
+        "data_start": frame["hour"].min().isoformat(),
+        "data_end": frame["hour"].max().isoformat(),
+        "data_version": read_data_version(raw_dir),
+        "features": NUMERIC_FEATURES + CATEGORICAL_FEATURES,
+        "targets": TARGETS,
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        **quality_counts,
+    }
+
+
+def train_and_log_p2_model(
+    model_name: str,
+    model_config: dict,
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    quality_counts: dict[str, int],
+    frame: pd.DataFrame,
+    training_dataset,
+    raw_dir: Path = RAW_DATA_DIR,
+    nested: bool = False,
+) -> dict:
+    """Fit, evaluate, and log one fully reproducible P2 model."""
     features = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+    run_name = f"p2-{model_name}-logistic-regression"
+    model = build_pipeline(**model_config)
+    logger.info(
+        "Entrenando {} con {:,} filas; evaluando con {:,}",
+        run_name,
+        len(train),
+        len(test),
+    )
+    fit_started = time.perf_counter()
+    model.fit(train[features], train[TARGETS])
+    fit_seconds = time.perf_counter() - fit_started
+    inference_started = time.perf_counter()
+    predictions = model.predict(test[features])
+    probabilities = model.predict_proba(test[features])
+    inference_seconds = time.perf_counter() - inference_started
+    metrics = evaluate(test[TARGETS], predictions, probabilities)
+    stability_metrics, monthly = evaluate_monthly_stability(test, predictions)
+    metrics.update(stability_metrics)
+    metrics.update(
+        {
+            "fit_seconds": fit_seconds,
+            "inference_seconds": inference_seconds,
+            "inference_rows_per_second": len(test) / inference_seconds,
+        }
+    )
+
+    plot_dir = FIGURES_DIR / "p2_search"
+    confusion_path = plot_dir / f"{run_name}_confusion_matrices.png"
+    pr_path = plot_dir / f"{run_name}_precision_recall.png"
+    save_confusion_matrices(test[TARGETS], predictions, TARGETS, confusion_path)
+    save_precision_recall_curves(test[TARGETS], probabilities, TARGETS, pr_path)
+    resolved_config = p2_run_config(
+        model_name,
+        model_config,
+        cutoff,
+        frame,
+        len(train),
+        len(test),
+        quality_counts,
+        raw_dir,
+    )
+    stage = "baseline" if model_name == "baseline" else "candidate"
+
+    with mlflow.start_run(run_name=run_name, nested=nested) as active_run:
+        mlflow.set_tags(
+            {
+                "mlflow.runName": run_name,
+                "team": "50",
+                "question": "P2",
+                "task": "classification",
+                "model_family": "logistic_regression",
+                "stage_of_work": stage,
+                "variant": model_name,
+                "git_commit": git_commit(),
+                "target_type": "demand_pressure_proxy",
+                "contains_personal_data": "false",
+            }
+        )
+        mlflow.log_params(
+            {
+                key: (
+                    json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+                )
+                for key, value in resolved_config.items()
+            }
+        )
+        mlflow.log_metrics(metrics)
+        mlflow.log_input(training_dataset, context="training")
+        mlflow.log_artifact(str(confusion_path), artifact_path="plots")
+        mlflow.log_artifact(str(pr_path), artifact_path="plots")
+        mlflow.log_text(monthly.to_csv(index=False), "plots/monthly_stability.csv")
+        for metadata_file in [raw_dir / "manifest.json", raw_dir / "profile.json"]:
+            if metadata_file.exists():
+                mlflow.log_artifact(str(metadata_file), artifact_path="data")
+        mlflow.log_dict(resolved_config, "config/resolved_training_config.json")
+        for config_file in [
+            PROJ_ROOT / "MLproject",
+            PROJ_ROOT / "python_env.yaml",
+            PROJ_ROOT / "requirements.txt",
+        ]:
+            mlflow.log_artifact(str(config_file), artifact_path="config")
+
+        input_example = train[features].head(5)
+        signature = infer_signature(input_example, model.predict(input_example))
+        model_info = mlflow.sklearn.log_model(
+            model,
+            name="model",
+            signature=signature,
+            input_example=input_example,
+            serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+        )
+
+    logger.success("{}: {}", run_name, json.dumps(metrics))
+    return {
+        "run_id": active_run.info.run_id,
+        "logged_model_id": model_info.model_id,
+        "model": model_name,
+        "stage_of_work": stage,
+        **metrics,
+    }
+
+
+def create_p2_training_dataset(train: pd.DataFrame, raw_dir: Path = RAW_DATA_DIR):
+    """Create aggregate station-hour lineage metadata without logging raw trip records."""
+    columns = NUMERIC_FEATURES + CATEGORICAL_FEATURES + TARGETS
+    return mlflow.data.from_pandas(
+        train[columns],
+        source=(raw_dir / "manifest.json").resolve().as_uri(),
+        name=f"p2_station_hour_{read_data_version(raw_dir)}",
+    )
+
+
+def train_p2(
+    raw_dir: Path = RAW_DATA_DIR,
+    date_start: str = P2_START_DATE,
+    date_end: str = P2_END_DATE,
+    alpha: float = P2_ALPHA,
+    train_fraction: float = P2_TRAIN_FRACTION,
+    experiment_name: str = MLFLOW_EXPERIMENT,
+    tracking_uri: str = MLFLOW_TRACKING_URI,
+    models: tuple[str, ...] = ("baseline", "candidato-1"),
+    model_params: dict | None = None,
+) -> dict[str, dict]:
+    """Train selected P2 configurations on the same chronological split."""
+    models = tuple(P2_MODEL_ALIASES.get(name, name) for name in models)
+    unknown = set(models) - set(P2_MODELS)
+    if unknown:
+        raise ValueError(f"Modelos P2 no válidos: {unknown}. Usa {list(P2_MODELS)}")
+
+    train, test, cutoff, quality_counts, frame = prepare_p2_data(
+        raw_dir, date_start, date_end, alpha, train_fraction
+    )
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
+    training_dataset = create_p2_training_dataset(train, raw_dir)
     results = {}
     for model_name in models:
-        config = P2_MODELS[model_name]
-        run_name = f"p2-{model_name}-logistic-regression"
-        model = build_pipeline(class_weight=config["class_weight"], c=config["c"])
-        logger.info(
-            "Entrenando {} con {:,} filas; evaluando con {:,}",
-            run_name,
-            len(train),
-            len(test),
+        config = {**P2_MODELS[model_name], "max_iter": P2_MAX_ITER}
+        config.update(
+            {key: value for key, value in (model_params or {}).items() if value is not None}
         )
-        model.fit(train[features], train[TARGETS])
-        predictions = model.predict(test[features])
-        probabilities = model.predict_proba(test[features])
-        metrics = evaluate(test[TARGETS], predictions, probabilities)
-        artifact_path = FIGURES_DIR / f"{run_name}_confusion_matrices.png"
-        save_confusion_matrices(test[TARGETS], predictions, TARGETS, artifact_path)
-
-        with mlflow.start_run(run_name=run_name):
-            mlflow.set_tags(
-                {
-                    "team": "50",
-                    "question": "P2",
-                    "task": "classification",
-                    "variant": model_name,
-                    "git_commit": git_commit(),
-                    "target_type": "demand_pressure_proxy",
-                }
-            )
-            mlflow.log_params(
-                {
-                    "model": "multioutput_logistic_regression",
-                    "penalty": "l2",
-                    "solver": "lbfgs",
-                    "max_iter": 1000,
-                    "class_weight": config["class_weight"] or "none",
-                    "C": config["c"],
-                    "alpha": alpha,
-                    "horizon_hours": 1,
-                    "date_start_inclusive": date_start,
-                    "date_end_exclusive": date_end,
-                    "train_fraction": train_fraction,
-                    "split_cutoff": cutoff.isoformat(),
-                    "data_start": frame["hour"].min().isoformat(),
-                    "data_end": frame["hour"].max().isoformat(),
-                    "data_version": read_data_version(raw_dir),
-                    **quality_counts,
-                    "train_rows": len(train),
-                    "test_rows": len(test),
-                }
-            )
-            mlflow.log_metrics(metrics)
-            mlflow.log_artifact(str(artifact_path), artifact_path="figures")
-            for metadata_file in [raw_dir / "manifest.json", raw_dir / "profile.json"]:
-                if metadata_file.exists():
-                    mlflow.log_artifact(str(metadata_file), artifact_path="data_metadata")
-            mlflow.sklearn.log_model(
-                model,
-                name="model",
-                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
-            )
-        results[model_name] = metrics
-        logger.success("{}: {}", run_name, json.dumps(metrics))
+        results[model_name] = train_and_log_p2_model(
+            model_name,
+            config,
+            train,
+            test,
+            cutoff,
+            quality_counts,
+            frame,
+            training_dataset,
+            raw_dir,
+        )
     return results
+
+
+def search_p2(
+    raw_dir: Path = RAW_DATA_DIR,
+    experiment_name: str = MLFLOW_EXPERIMENT,
+    tracking_uri: str = MLFLOW_TRACKING_URI,
+) -> dict:
+    """Run baseline plus three P2 candidates as children of one organized search."""
+    train, test, cutoff, quality_counts, frame = prepare_p2_data(raw_dir)
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+    training_dataset = create_p2_training_dataset(train, raw_dir)
+    search_name = "p2-logistic-class-weight-search"
+    variants = ("baseline", *P2_SEARCH_MODELS)
+    results = []
+
+    with mlflow.start_run(run_name=search_name) as parent_run:
+        mlflow.set_tags(
+            {
+                "mlflow.runName": search_name,
+                "team": "50",
+                "question": "P2",
+                "model_family": "logistic_regression",
+                "stage_of_work": "search",
+                "git_commit": git_commit(),
+            }
+        )
+        mlflow.log_dict(
+            {"baseline": P2_MODELS["baseline"], "candidates": P2_SEARCH_MODELS},
+            "config/search_space.json",
+        )
+        for model_name in variants:
+            model_config = {**P2_MODELS[model_name], "max_iter": P2_MAX_ITER}
+            results.append(
+                train_and_log_p2_model(
+                    model_name,
+                    model_config,
+                    train,
+                    test,
+                    cutoff,
+                    quality_counts,
+                    frame,
+                    training_dataset,
+                    raw_dir,
+                    nested=True,
+                )
+            )
+
+        comparison = pd.DataFrame(results).sort_values("macro_f1", ascending=False)
+        winner = comparison.iloc[0]
+        baseline = comparison[comparison["model"] == "baseline"].iloc[0]
+        improvement = winner["macro_f1"] - baseline["macro_f1"]
+        decision = (
+            f"# Selección P2\n\n"
+            f"Se selecciona **{winner['model']}** por obtener el mayor macro-F1 "
+            f"({winner['macro_f1']:.6f}), una diferencia de {improvement:+.6f} frente al "
+            f"baseline. Su desviación mensual de macro-F1 fue "
+            f"{winner['monthly_macro_f1_std']:.6f}; el ajuste tomó "
+            f"{winner['fit_seconds']:.2f} s y la inferencia {winner['inference_seconds']:.2f} s. "
+            "Macro-F1 es la métrica principal porque equilibra riesgos omitidos y falsas "
+            "alarmas para el equipo de rebalanceo.\n"
+        )
+        mlflow.log_text(comparison.to_csv(index=False), "selection/model_comparison.csv")
+        mlflow.log_text(decision, "selection/decision.md")
+        mlflow.set_tags(
+            {
+                "selected_model": winner["model"],
+                "selected_run_id": winner["run_id"],
+                "selection_metric": "macro_f1",
+            }
+        )
+        client = mlflow.tracking.MlflowClient()
+        client.set_tag(winner["run_id"], "selected_for_production", "true")
+        registered_version = mlflow.register_model(
+            f"models:/{winner['logged_model_id']}", P2_REGISTERED_MODEL_NAME
+        )
+        client.set_registered_model_alias(
+            P2_REGISTERED_MODEL_NAME, "champion", registered_version.version
+        )
+        source_run = client.get_run(winner["run_id"])
+        source_experiment = client.get_experiment(source_run.info.experiment_id)
+        lineage = {
+            "experiment_id": source_experiment.experiment_id,
+            "experiment_name": source_experiment.name,
+            "source_run_id": winner["run_id"],
+            "git_commit": source_run.data.tags["git_commit"],
+            "data_version": source_run.data.params["data_version"],
+            "parent_search_run_id": parent_run.info.run_id,
+            "question": "P2",
+            "stage": "production",
+        }
+        client.update_registered_model(
+            P2_REGISTERED_MODEL_NAME, description=P2_REGISTERED_MODEL_DESCRIPTION
+        )
+        client.update_model_version(
+            P2_REGISTERED_MODEL_NAME,
+            registered_version.version,
+            description=(
+                f"Modelo {winner['model']} seleccionado por macro-F1="
+                f"{winner['macro_f1']:.6f}. Origen: experimento "
+                f"{source_experiment.name}, corrida {winner['run_id']}, commit "
+                f"{lineage['git_commit']} y datos {lineage['data_version']}."
+            ),
+        )
+        for key, value in lineage.items():
+            client.set_model_version_tag(
+                P2_REGISTERED_MODEL_NAME, registered_version.version, key, str(value)
+            )
+        mlflow.set_tags(
+            {
+                "registered_model": P2_REGISTERED_MODEL_NAME,
+                "registered_model_version": registered_version.version,
+                "registered_model_alias": "champion",
+            }
+        )
+
+    return {
+        "parent_run_id": parent_run.info.run_id,
+        "selected_model": winner["model"],
+        "selected_run_id": winner["run_id"],
+        "comparison": comparison,
+    }
 
 
 @app.command("train-p2")
 def train_p2_command(
     model: list[str] = typer.Option(
-        ["baseline", "candidato"], help="Configuración P2; se puede repetir"
+        ["baseline", "candidato-1"], help="Configuración P2; se puede repetir"
     ),
 ) -> None:
     """Train the P2 baseline and candidate configurations."""
     train_p2(models=tuple(model))
+
+
+@app.command("search-p2")
+def search_p2_command() -> None:
+    """Run the nested baseline-versus-three-candidates P2 search."""
+    search_p2()
 
 
 FEATURE_COLUMNS = [
@@ -307,13 +614,17 @@ def evaluate_model(model, X_test, y_test):
     }, predictions
 
 
-@app.command("train-p1")
 def train_p1(
     features_path: Path = P1_FEATURES_FILE,
     manifest_path: Path = P1_MANIFEST_FILE,
     model_path: Path = P1_MODEL_FILE,
-    test_fraction: float = 0.2,
+    test_fraction: float = P1_TEST_FRACTION,
     tracking_uri: str = MLFLOW_TRACKING_URI,
+    models: tuple[str, ...] = ("baseline", "candidato"),
+    max_iter: int = P1_MAX_ITER,
+    learning_rate: float = P1_LEARNING_RATE,
+    max_leaf_nodes: int = P1_MAX_LEAF_NODES,
+    l2_regularization: float = P1_L2_REGULARIZATION,
 ):
     """Train and compare a baseline and a candidate regression model."""
     if not 0 < test_fraction < 1:
@@ -324,6 +635,11 @@ def train_p1(
 
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+    valid_models = {"baseline", "candidato"}
+    unknown = set(models) - valid_models
+    if unknown:
+        raise ValueError(f"Modelos P1 no válidos: {unknown}. Usa {sorted(valid_models)}")
 
     logger.info("Reading features from {}", features_path)
     df = pd.read_parquet(features_path)
@@ -375,22 +691,23 @@ def train_p1(
 
     # Candidate model: histogram-based gradient boosting.
     candidate = HistGradientBoostingRegressor(
-        max_iter=100,
-        learning_rate=0.1,
-        max_leaf_nodes=31,
-        l2_regularization=1.0,
+        max_iter=max_iter,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+        l2_regularization=l2_regularization,
         early_stopping=True,
-        random_state=42,
+        random_state=RANDOM_SEED,
     )
 
     results = {}
 
-    models = {
-        "p1-baseline-median": DummyRegressor(strategy="median"),
-        "p1-candidato-hist-gradient-boosting": candidate,
+    configured_models = {
+        "baseline": ("p1-baseline-median", DummyRegressor(strategy="median")),
+        "candidato": ("p1-candidato-hist-gradient-boosting", candidate),
     }
 
-    for model_name, model in models.items():
+    for variant in models:
+        model_name, model = configured_models[variant]
         logger.info("Training model: {}", model_name)
 
         with mlflow.start_run(run_name=model_name):
@@ -415,7 +732,7 @@ def train_p1(
                     "test_end": str(test_df["timestamp"].max()),
                     "split_strategy": "chronological",
                     "test_fraction": test_fraction,
-                    "random_state": 42,
+                    "random_state": RANDOM_SEED,
                     "n_features": len(FEATURE_COLUMNS),
                     "train_rows": len(train_df),
                     "test_rows": len(test_df),
@@ -445,6 +762,7 @@ def train_p1(
             save_regression_scatter(y_test, predictions, model_name, plot_path)
 
             mlflow.log_artifact(str(plot_path), artifact_path="plots")
+            mlflow.log_artifact(str(manifest_path), artifact_path="data_metadata")
 
             if model_name == "p1-candidato-hist-gradient-boosting":
 
@@ -478,11 +796,23 @@ def train_p1(
     )
 
     comparison_path = P1_COMPARISON_FILE
+    comparison_path.parent.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(comparison_path, index=False)
 
     logger.info("\n{}", comparison.to_string(index=False))
     logger.success("Comparison saved to {}", comparison_path)
-    logger.success("Candidate model saved to {}", model_path)
+    if "candidato" in models:
+        logger.success("Candidate model saved to {}", model_path)
+
+
+@app.command("train-p1")
+def train_p1_command(
+    model: list[str] = typer.Option(
+        ["baseline", "candidato"], help="Configuración P1; se puede repetir"
+    ),
+) -> None:
+    """Train the selected P1 baseline or candidate configurations."""
+    train_p1(models=tuple(model))
 
 
 P3_USAGE_FEATURES = [
@@ -500,7 +830,6 @@ P3_MODELS = {
     "baseline": ["viajes_dia", "prop_fin_semana"],
     "candidato": P3_USAGE_FEATURES,
 }
-P3_N_INIT = 10
 
 
 def build_p3_preprocessor() -> Pipeline:
@@ -512,9 +841,9 @@ def build_p3_preprocessor() -> Pipeline:
     return Pipeline([("log_viajes", log_trips), ("escala", StandardScaler())])
 
 
-def build_p3_model(k: int) -> Pipeline:
+def build_p3_model(k: int, n_init: int = CLUSTERING_N_INIT) -> Pipeline:
     """Build the preprocessing and K-Means P3 pipeline."""
-    kmeans = KMeans(n_clusters=k, n_init=P3_N_INIT, random_state=CLUSTERING_SEED)
+    kmeans = KMeans(n_clusters=k, n_init=n_init, random_state=CLUSTERING_SEED)
     return Pipeline([("preprocesamiento", build_p3_preprocessor()), ("kmeans", kmeans)])
 
 
@@ -553,9 +882,10 @@ def train_and_log_cluster_model(
     model_name: str,
     k: int,
     data_version: str,
+    n_init: int = CLUSTERING_N_INIT,
 ) -> None:
     variables = P3_MODELS[model_name]
-    pipeline = build_p3_model(k)
+    pipeline = build_p3_model(k, n_init=n_init)
     groups = pipeline.fit_predict(profile[variables])
     metrics = evaluate_clustering(x_eval, groups)
     run_name = f"p3-{model_name}-kmeans-k{k}"
@@ -568,7 +898,7 @@ def train_and_log_cluster_model(
                 "modelo": model_name,
                 "algoritmo": "KMeans",
                 "k": k,
-                "n_init": P3_N_INIT,
+                "n_init": n_init,
                 "semilla": CLUSTERING_SEED,
                 "variables": ",".join(variables),
                 "fecha_inicio": CLUSTERING_START_DATE,
@@ -598,7 +928,11 @@ def train_and_log_cluster_model(
     )
 
 
-def train_p3(models: tuple[str, ...] = ("baseline", "candidato"), ks: tuple[int, ...] = (4,)):
+def train_p3(
+    models: tuple[str, ...] = ("baseline", "candidato"),
+    ks: tuple[int, ...] = (CLUSTERING_K,),
+    n_init: int = CLUSTERING_N_INIT,
+):
     """Train and log each requested P3 model/k combination."""
     unknown = set(models) - set(P3_MODELS)
     if unknown:
@@ -612,14 +946,16 @@ def train_p3(models: tuple[str, ...] = ("baseline", "candidato"), ks: tuple[int,
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
     for model_name in models:
         for k in ks:
-            train_and_log_cluster_model(profile, x_eval, model_name, k, manifest["version_datos"])
+            train_and_log_cluster_model(
+                profile, x_eval, model_name, k, manifest["version_datos"], n_init=n_init
+            )
     logger.success(f"Runs P3 registrados en {MLFLOW_EXPERIMENT}")
 
 
 @app.command("train-p3")
 def train_p3_command(
     model: list[str] = typer.Option(["baseline", "candidato"], help="baseline o candidato"),
-    k: list[int] = typer.Option([4], help="Número de grupos; se puede repetir"),
+    k: list[int] = typer.Option([CLUSTERING_K], help="Número de grupos; se puede repetir"),
 ) -> None:
     """Train the P3 clustering models."""
     train_p3(tuple(model), tuple(k))

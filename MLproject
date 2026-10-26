@@ -1,0 +1,28 @@
+name: mibici-equipo50
+
+python_env: python_env.yaml
+
+entry_points:
+  ingest:
+    command: "python -m mibici_ml.dataset prepare"
+
+  features:
+    parameters:
+      question: {type: string}
+    command: "python -m mibici_ml.project features --question {question}"
+
+  train:
+    parameters:
+      question: {type: string}
+      model: {type: string}
+      hyperparameters: {type: string, default: "{}"}
+    command: "python -m mibici_ml.project train --question {question} --model {model} --hyperparameters {hyperparameters}"
+
+  p2-search:
+    command: "python -m mibici_ml.project p2-search"
+
+  p3-search:
+    command: "python -m mibici_ml.project p3-search"
+
+  p3-register:
+    command: "python -m mibici_ml.project p3-register"

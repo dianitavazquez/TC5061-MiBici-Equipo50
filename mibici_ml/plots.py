@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.metrics import ConfusionMatrixDisplay
+from sklearn.metrics import ConfusionMatrixDisplay, PrecisionRecallDisplay
 
 BACKGROUND = "#fcfcfb"
 TEXT = "#0b0b0b"
@@ -66,6 +66,23 @@ def save_confusion_matrices(
     for index, target in enumerate(targets):
         ConfusionMatrixDisplay.from_predictions(
             y_true[target], predictions[:, index], ax=axes[index], colorbar=False
+        )
+        axes[index].set_title(target)
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(figure)
+
+
+def save_precision_recall_curves(
+    y_true: pd.DataFrame, probabilities: list[np.ndarray], targets: list[str], output_path: Path
+) -> None:
+    """Save one precision-recall curve per P2 target."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure, axes = plt.subplots(1, len(targets), figsize=(5 * len(targets), 4))
+    axes = np.atleast_1d(axes)
+    for index, target in enumerate(targets):
+        PrecisionRecallDisplay.from_predictions(
+            y_true[target], probabilities[index][:, 1], ax=axes[index], name=target
         )
         axes[index].set_title(target)
     figure.tight_layout()
