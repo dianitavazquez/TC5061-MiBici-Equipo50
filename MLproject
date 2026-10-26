@@ -1,0 +1,21 @@
+name: mibici-p1
+
+entry_points:
+  ingest:
+    command: "python -m mibici_ml.dataset prepare"
+
+  features:
+    command: "python -m mibici_ml.features build-p1"
+
+  train:
+    parameters:
+      test_fraction:
+        type: float
+        default: 0.2
+      max_train_rows:
+        type: int
+        default: 250000
+      max_test_rows:
+        type: int
+        default: 100000
+    command: "python -m mibici_ml.modeling.train train-p1 --test-fraction {test_fraction} --max-train-rows {max_train_rows} --max-test-rows {max_test_rows}"
