@@ -47,6 +47,67 @@ El proyecto requiere Python 3.12 y MLflow 3.17.1.
 `cryptography` se fija en 44.0.3 porque incluye wheels para Python 3.12 tanto en macOS
 Intel como Apple Silicon; así la instalación no requiere compilar Rust/OpenSSL localmente.
 
+### Variables de entorno y credenciales
+
+La configuración local se carga desde variables de entorno. Como punto de partida, copia la
+plantilla versionada y modifica únicamente tu archivo local:
+
+```bash
+cp .env.example .env
+```
+
+`.env`, variantes locales, llaves privadas y archivos comunes de credenciales están excluidos
+por `.gitignore`. No agregues tokens, contraseñas, datos personales ni credenciales reales al
+repositorio. `.env.example` debe contener solamente nombres de variables y valores públicos o
+de ejemplo.
+
+## Pruebas, calidad de datos y seguridad
+
+Ejecuta toda la suite desde la raíz del repositorio con el entorno virtual activo:
+
+```bash
+python -m pytest -q
+# Equivalente:
+make test
+```
+
+Las pruebas unitarias de feature engineering para P1, P2 y P3 están en
+`tests/test_features.py`. Los chequeos de `tests/test_quality_and_security.py` validan:
+
+- columnas requeridas, tipos, valores faltantes y rangos permitidos;
+- unicidad de llaves y proporción de registros duplicados;
+- separación cronológica y drift entre entrenamiento y prueba mediante PSI, con umbral 0.25;
+- ausencia de archivos sensibles versionados y de credenciales embebidas.
+
+Los chequeos de datasets usan los artefactos locales generados y se omiten si todavía no
+existen. P2 no persiste su panel estación-hora, por lo que el chequeo lo construye con un mes
+representativo de viajes reales y valida su esquema, targets, duplicados, corte cronológico y
+drift. Para ejecutar los chequeos con datos reales, genera primero la ingesta y las features y
+después corre:
+
+```bash
+mlflow run . -e ingest
+mlflow run . -e features -P question=p1
+mlflow run . -e features -P question=p3
+python -m pytest tests/test_quality_and_security.py -q
+# Equivalente:
+make quality
+```
+
+El análisis estático de seguridad se realiza con Bandit, fijado en `requirements.txt`:
+
+```bash
+python -m bandit -r mibici_ml -ll
+# Equivalente:
+make security
+```
+
+Para ejecutar pruebas, formato/lint y seguridad en una sola operación:
+
+```bash
+make checks
+```
+
 ## Ejecución reproducible con MLflow Project
 
 Todas las corridas de esta entrega se lanzan desde `MLproject`. `python_env.yaml` usa Python
