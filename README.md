@@ -8,6 +8,17 @@ Pipeline reproducible para estudiar la demanda y los patrones de uso del sistema
 bicicletas públicas MiBici a nivel estación-hora. El proyecto centraliza ingesta,
 variables, entrenamiento, evaluación y tracking de experimentos con MLflow.
 
+## Equipo
+
+| Integrante | Rol principal | Pregunta |
+|---|---|---|
+| Diana Vázquez | Ingesta y modelado de regresión | P1 |
+| Anuar Vargas | Clasificación, arquitectura e integración | P2 |
+| César Valladares | Ingesta, features y modelado de clustering | P3 |
+
+La responsabilidad de revisión es cruzada: ningún integrante revisa únicamente su propio
+trabajo y la evidencia queda registrada en la pestaña **Pull requests** de GitHub.
+
 ## Preguntas del proyecto
 
 1. **P1 — Regresión:** ¿cuántas salidas tendrá cada estación durante la siguiente hora?
@@ -190,37 +201,6 @@ Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 se admiten `bas
 primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
 un error explícito.
 
-### Búsqueda organizada de P2
-
-La comparación definitiva de P2 se ejecuta con un solo comando:
-
-```bash
-mlflow run . -e p2-search
-```
-
-La corrida padre `p2-logistic-class-weight-search` tiene `stage_of_work=search` y contiene
-cuatro corridas hijas sobre exactamente el mismo corte cronológico: el baseline sin pesos y
-tres candidatos con `class_weight` balanceado, peso positivo 2× y peso positivo 5×. Cada
-hija registra las métricas P2 originales, estabilidad mensual, tiempo de ajuste e inferencia,
-el modelo con firma y ejemplo, lineage del conjunto agregado estación-hora, manifiesto,
-configuración, matrices de confusión y curvas precisión-recall. El padre guarda la tabla
-comparativa y la justificación del modelo marcado con `selected_for_production=true`.
-
-La búsqueda ejecutada sobre la versión de datos `928ac1753461` produjo:
-
-| Modelo | Peso clase positiva | Macro-F1 | F1 sin bicis | F1 sin anclajes | Mínimo macro-F1 mensual | Ajuste (s) |
-|---|---:|---:|---:|---:|---:|---:|
-| Baseline | 1× | 0.1474 | 0.1408 | 0.1540 | 0.1404 | 37.0 |
-| Candidato 1 | balanced | 0.0253 | 0.0198 | 0.0308 | 0.0212 | 168.5 |
-| Candidato 2 | 2× | 0.1684 | 0.1481 | 0.1886 | 0.1601 | 41.7 |
-| **Candidato 3** | **5×** | **0.2068** | **0.1718** | **0.2418** | **0.1936** | 85.6 |
-
-Se seleccionó el candidato 3: mejora macro-F1 en 0.0594 puntos (40.3% relativo) frente al
-baseline y su peor mes todavía supera al peor mes del baseline. Requiere más tiempo de
-ajuste, pero la inferencia del conjunto de prueba fue prácticamente igual (2.48 s contra
-2.50 s), por lo que no añade costo relevante en operación. Está registrado como versión 1
-de `mibici-equipo50-p2-riesgo`, con alias `champion`. Puede cargarse mediante
-`models:/mibici-equipo50-p2-riesgo@champion`.
 
 ## Flujo de trabajo con Git y GitHub
 
@@ -251,32 +231,6 @@ Comandos de inicio de un cambio:
 git switch main
 git pull --ff-only origin main
 git switch -c feature/descripcion-iniciales
-```
-
-## Equipo
-
-| Integrante | Rol principal | Pregunta |
-|---|---|---|
-| Diana Vázquez | Ingesta y modelado de regresión | P1 |
-| Anuar Vargas | Clasificación, arquitectura e integración | P2 |
-| César Valladares | Ingesta, features y modelado de clustering | P3 |
-
-La responsabilidad de revisión es cruzada: ningún integrante revisa únicamente su propio
-trabajo y la evidencia queda registrada en la pestaña **Pull requests** de GitHub.
-
-## Clasificador P2
-
-El baseline predice presión de demanda por falta de bicicletas y de anclajes para cada
-estación en la hora siguiente. El diseño, las fuentes, la estrategia temporal y las
-métricas están documentados en [docs/p2-classifier-design.md](docs/p2-classifier-design.md).
-
-El análisis exploratorio se encuentra en
-[notebooks/1.0-aavm-p2-eda.ipynb](notebooks/1.0-aavm-p2-eda.ipynb). Incluye cobertura,
-calidad, demanda por hora, estaciones con más salidas y distribución de capacidades.
-
-```bash
-mlflow run . -e ingest
-mlflow run . -e p2-search
 ```
 
 ## Pipeline unificada
@@ -355,6 +309,51 @@ contiene los experimentos registrados.
 ```
 
 --------
+
+## Clasificador P2
+
+El baseline predice presión de demanda por falta de bicicletas y de anclajes para cada
+estación en la hora siguiente. El diseño, las fuentes, la estrategia temporal y las
+métricas están documentados en [docs/p2-classifier-design.md](docs/p2-classifier-design.md).
+
+El análisis exploratorio se encuentra en
+[notebooks/1.0-aavm-p2-eda.ipynb](notebooks/1.0-aavm-p2-eda.ipynb). Incluye cobertura,
+calidad, demanda por hora, estaciones con más salidas y distribución de capacidades.
+
+```bash
+mlflow run . -e ingest
+mlflow run . -e p2-search
+```
+
+La comparación definitiva de P2 se ejecuta con un solo comando:
+
+```bash
+mlflow run . -e p2-search
+```
+
+La corrida padre `p2-logistic-class-weight-search` tiene `stage_of_work=search` y contiene
+cuatro corridas hijas sobre exactamente el mismo corte cronológico: el baseline sin pesos y
+tres candidatos con `class_weight` balanceado, peso positivo 2× y peso positivo 5×. Cada
+hija registra las métricas P2 originales, estabilidad mensual, tiempo de ajuste e inferencia,
+el modelo con firma y ejemplo, lineage del conjunto agregado estación-hora, manifiesto,
+configuración, matrices de confusión y curvas precisión-recall. El padre guarda la tabla
+comparativa y la justificación del modelo marcado con `selected_for_production=true`.
+
+La búsqueda ejecutada sobre la versión de datos `928ac1753461` produjo:
+
+| Modelo | Peso clase positiva | Macro-F1 | F1 sin bicis | F1 sin anclajes | Mínimo macro-F1 mensual | Ajuste (s) |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline | 1× | 0.1474 | 0.1408 | 0.1540 | 0.1404 | 37.0 |
+| Candidato 1 | balanced | 0.0253 | 0.0198 | 0.0308 | 0.0212 | 168.5 |
+| Candidato 2 | 2× | 0.1684 | 0.1481 | 0.1886 | 0.1601 | 41.7 |
+| **Candidato 3** | **5×** | **0.2068** | **0.1718** | **0.2418** | **0.1936** | 85.6 |
+
+Se seleccionó el candidato 3: mejora macro-F1 en 0.0594 puntos (40.3% relativo) frente al
+baseline y su peor mes todavía supera al peor mes del baseline. Requiere más tiempo de
+ajuste, pero la inferencia del conjunto de prueba fue prácticamente igual (2.48 s contra
+2.50 s), por lo que no añade costo relevante en operación. Está registrado como versión 1
+de `mibici-equipo50-p2-riesgo`, con alias `champion`. Puede cargarse mediante
+`models:/mibici-equipo50-p2-riesgo@champion`.
 
 ## P3: Clustering de estaciones
 
