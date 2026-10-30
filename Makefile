@@ -18,7 +18,7 @@ check-python:
 ## Install Python dependencies
 .PHONY: requirements
 requirements: check-python
-	$(PYTHON_INTERPRETER) -m pip install -U pip
+	$(PYTHON_INTERPRETER) -m pip install pip==24.2 setuptools==75.1.0 wheel==0.44.0
 	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
 	
 
@@ -34,15 +34,34 @@ clean:
 ## Lint using flake8, black, and isort (use `make format` to do formatting)
 .PHONY: lint
 lint:
-	flake8 mibici_ml
-	isort --check --diff mibici_ml
-	black --check mibici_ml
+	flake8 mibici_ml tests
+	isort --check --diff mibici_ml tests
+	black --check mibici_ml tests
+
+## Run the complete automated test suite
+.PHONY: test
+test:
+	$(PYTHON_INTERPRETER) -m pytest -q
+
+## Validate available datasets, repository secrets, and environment rules
+.PHONY: quality
+quality:
+	$(PYTHON_INTERPRETER) -m pytest tests/test_quality_and_security.py -q
+
+## Analyze application code for common security issues
+.PHONY: security
+security:
+	$(PYTHON_INTERPRETER) -m bandit -r mibici_ml -ll
+
+## Run tests, code quality, and security checks
+.PHONY: checks
+checks: test lint security
 
 ## Format source code with black
 .PHONY: format
 format:
-	isort mibici_ml
-	black mibici_ml
+	isort mibici_ml tests
+	black mibici_ml tests
 
 
 
@@ -87,10 +106,12 @@ train-p3:
 pipeline:
 	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.train all
 
-## Open the local MLflow tracking interface
+## Start the local MLflow tracking server and Model Registry
 .PHONY: mlflow-ui
 mlflow-ui: check-python
-	$(PYTHON_INTERPRETER) -m mlflow ui --backend-store-uri sqlite:///mlflow.db
+	@mkdir -p mlartifacts
+	@echo "MLflow UI: http://127.0.0.1:5050 (deja esta terminal abierta; Ctrl+C para detener)"
+	MLFLOW_DISABLE_AGENT_HINT=1 $(PYTHON_INTERPRETER) -m mlflow server --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlartifacts --host 127.0.0.1 --port 5050 --workers 1
 
 
 #################################################################################

@@ -151,12 +151,24 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local credentials and private keys
+.secrets/
+secrets.json
+credentials.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Spyder project settings
 .spyderproject
@@ -201,3 +213,15 @@ mlartifacts/
 mlflow.db
 *.pkl
 *.joblib
+
+# Local report exports and supporting screenshots
+/TC5061_Reporte_MLFlow_Equipo50_*.md
+*.pdf
+/Captura de pantalla*.png
+/plots/
+
+# Alternate local virtual environments
+/.venv*/
+
+# Ad-hoc generated P2 figure outside the tracked search directory
+/reports/figures/p2_confusion_matrices.png

@@ -1,9 +1,23 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from mibici_ml.config import SELECTED_SOURCE_FILES
-from mibici_ml.dataset import clean_p3_stations, download_drive_data, normalize_column
+from mibici_ml.dataset import (
+    _open_url,
+    clean_p3_stations,
+    download_drive_data,
+    normalize_column,
+)
+
+
+def test_open_url_rejects_non_https_schemes():
+    with pytest.raises(ValueError, match="HTTPS"):
+        _open_url("file:///etc/passwd")
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        _open_url("http://example.com/data.csv")
 
 
 def test_download_uses_exactly_the_selected_sources(tmp_path, monkeypatch):
