@@ -244,12 +244,59 @@ make mlflow-ui
 3. `mibici_ml/modeling/train.py` entrena el baseline y el modelo candidato y registra cada run en MLflow con sus parámetros, métricas, artefactos, el modelo y las etiquetas `team`, `question` y `git_commit`.
 4. `mibici_ml/plots.py` contiene las gráficas de los tres modelos, incluido el mapa de los grupos y el heatmap de su perfil. Se guardan en MLflow y en `reports/figures/`.
 5. `notebooks/1.0-cavm-eda-clustering.ipynb` tiene la exploración de las duraciones que usé para definir las reglas de limpieza.
+6. `mibici_ml/validation.py` revisa con DeepChecks la integridad de los viajes y del perfil y el drift entre train y test (más abajo explico los resultados).
 
 Todas las rutas, fechas y la semilla están en `mibici_ml/config.py`.
 
 ### Datos personales
 
 No cargo `Usuario_Id`, `Genero` ni `Año_de_nacimiento`, los CSV no se suben a Git y solo publico resultados agregados por estación. El portal no publica una licencia abierta, solo sus [términos y condiciones](https://www.mibici.net/es/termino-y-condiciones/) y su [aviso de privacidad](https://www.mibici.net/es/aviso-de-privacidad/), así que uso los datos solo para este proyecto escolar.
+
+### Validación de datos con DeepChecks
+
+Para revisar la calidad de los datos uso [DeepChecks](https://docs.deepchecks.com/). Después de `prepare` y `build-p3` corro:
+
+```bash
+python -m mibici_ml.validation p3
+```
+
+El comando hace cinco revisiones. Guarda un reporte HTML de cada una en `reports/deepchecks/` (no se sube a Git porque muestra viajes individuales) y un resumen con todos los resultados en `references/validacion_clustering.json`.
+
+1. Integridad de los viajes antes de limpiar: columnas con un solo valor, tipos mezclados, nulos (también nulos escritos de distintas formas) y filas duplicadas.
+2. La misma revisión en los viajes ya limpios.
+3. La misma revisión en el perfil de estaciones.
+4. Drift por viaje entre train (septiembre de 2025 a junio de 2026, 3,497,879 viajes) y test (julio a septiembre de 2026, 1,220,951 viajes) en la hora, el día de la semana, la duración, la estación de origen y si el viaje es redondo.
+5. Drift en las 9 variables del perfil. Armo el perfil de cada periodo y comparo solo las 381 estaciones que aparecen en los dos, para que las estaciones nuevas no parezcan drift.
+
+Para el drift, DeepChecks compara cada variable con Kolmogorov-Smirnov o V de Cramér (límite 0.2) y entrena un clasificador que intenta distinguir train de test (límite de 0.25, que equivale a un AUC de 0.625).
+
+| Revisión | Resultado | Qué encontré |
+|---|---|---|
+| Viajes crudos | Aviso | 758 filas duplicadas (0.016 %), sin nulos ni tipos mezclados. Son las que quita la limpieza. |
+| Viajes limpios | Pasa | Sin nulos ni tipos mezclados. Quedan 781 viajes repetidos con distinto `viaje_id` (0.017 %), debajo del límite de 0.1 %. |
+| Perfil de estaciones | Pasa | 468 estaciones sin nulos, duplicados ni tipos mezclados. |
+| Drift por viaje | Pasa | El puntaje más alto es 0.05 (duración) y el AUC del clasificador es 0.56. |
+| Drift del perfil | No pasa | `duracion_mediana` tiene 0.23 y el AUC del clasificador es 0.70. |
+
+Los 781 viajes repetidos tienen la misma hora de inicio y fin y las mismas estaciones. No los quito porque no sé si son un error del sistema o personas que salieron juntas, y casi no mueven el perfil: al quitarlos, `viajes_dia` cambia como máximo 0.13 y la duración mediana 0.03 minutos. Por eso dejé un límite de 0.1 % (`CLUSTERING_MAX_DUPLICATE_RATIO` en `config.py`).
+
+El drift del perfil sí es un hallazgo. De julio a septiembre la duración mediana de los viajes por estación baja de 9.97 a 9.07 minutos y el balance entre salidas y llegadas también cambia un poco (0.16, debajo del límite). Puede ser por la temporada de lluvias o las vacaciones, pero no lo comprobé. Como el modelo de P3 describe el año completo esto no lo invalida, pero si se entrena solo con meses recientes los grupos podrían cambiar, así que conviene repetir esta validación cada vez que se agreguen meses.
+
+![Resumen de DeepChecks en los viajes crudos](tests/evidencia_deepchecks_integridad.png)
+
+![Drift del perfil de estaciones](tests/evidencia_deepchecks_drift.png)
+
+Las pruebas de esta validación están en `tests/test_data_validation.py`. Con tablas pequeñas comprueban que las suites sí detectan nulos, nulos escritos de distintas formas, tipos mezclados, duplicados y drift, que el corte de fechas no mezcla los periodos y que solo se comparan estaciones que aparecen en ambos. Las dos últimas revisan los datos reales y se saltan si todavía no se corre la ingesta. Las pruebas del procesamiento de datos (lectura, limpieza y versionado) están en `tests/test_data_processing.py`.
+
+```bash
+python -m pytest tests/test_data_processing.py tests/test_data_validation.py -v
+```
+
+![Pruebas del procesamiento de datos](tests/evidencia_test_data_processing.png)
+
+![Pruebas de la validación con DeepChecks](tests/evidencia_test_data_validation.png)
+
+Uso `deepchecks==0.19.1`, que necesita `setuptools<81` y `plotly==5.24.1`; los tres ya están en `requirements.txt`. Al importarse, DeepChecks manda un aviso anónimo a su servidor, así que lo apago en `mibici_ml/config.py` con `DISABLE_DEEPCHECKS_ANONYMOUS_TELEMETRY`.
 
 ### Resultados
 

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -5,6 +6,8 @@ from loguru import logger
 
 # Load environment variables from .env file if it exists
 load_dotenv()
+# DeepChecks manda un aviso anónimo a su servidor al importarse; lo apagamos por privacidad
+os.environ.setdefault("DISABLE_DEEPCHECKS_ANONYMOUS_TELEMETRY", "True")
 
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
@@ -94,3 +97,9 @@ CLUSTERING_MLFLOW_URI = MLFLOW_TRACKING_URI
 CLUSTERING_MLFLOW_EXPERIMENT = MLFLOW_EXPERIMENT
 
 CLUSTERING_SEED = 42
+
+# Validación de datos con DeepChecks
+CLUSTERING_DRIFT_CUTOFF = "2026-07-01"  # train: sep 2025 a jun 2026; test: jul a sep 2026
+CLUSTERING_MAX_DUPLICATE_RATIO = 0.001  # viajes idénticos con distinto viaje_id que se toleran
+CLUSTERING_VALIDATION_DIR = REPORTS_DIR / "deepchecks"
+CLUSTERING_VALIDATION_FILE = REFERENCES_DIR / "validacion_clustering.json"

@@ -6,6 +6,9 @@
 /mlartifacts/
 /mlflow.db
 
+# Reportes HTML de DeepChecks: muestran viajes individuales, solo se sube el resumen
+/reports/deepchecks/
+
 # Mac OS-specific storage files
 .DS_Store
 
