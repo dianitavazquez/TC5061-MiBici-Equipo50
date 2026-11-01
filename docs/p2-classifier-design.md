@@ -115,9 +115,14 @@ los viajes que todavía no empiezan y usarla introduciría fuga temporal.
   modelo aporta señal frente a la prevalencia.
 - **Baseline:** regresión logística regularizada sin ponderación de clases. Es
   interpretable, entrega probabilidades y establece una referencia reproducible.
-- **Candidato:** la misma regresión logística con `class_weight="balanced"`. Mantener
-  iguales las variables, el split temporal y los demás hiperparámetros permite medir
-  directamente el efecto del balanceo sobre las clases minoritarias.
+- **Candidato 1:** la misma regresión logística con `class_weight="balanced"`.
+- **Candidato 2:** regresión logística con peso 2 para la clase positiva.
+- **Candidato 3:** regresión logística con peso 5 para la clase positiva.
+
+Los tres candidatos forman una búsqueda organizada como una corrida padre y una corrida
+hija por configuración. Mantener iguales las variables, el split temporal, `C=1.0` y los
+demás hiperparámetros permite medir directamente el compromiso entre recall y precision
+producido por el peso de las clases.
 
 La métrica principal es **F1** por objetivo porque los positivos son minoritarios y se
 necesita equilibrar alarmas falsas con riesgos omitidos. Se reportan además **recall**
@@ -131,12 +136,36 @@ visita innecesaria frente a un desabasto omitido.
 
 ```bash
 make requirements
-python -m mibici_ml.dataset prepare
-python -m mibici_ml.modeling.train train-p2
 make mlflow-ui
+# En otra terminal, con MLFLOW_TRACKING_URI y MLFLOW_EXPERIMENT_NAME configurados:
+mlflow run . -e ingest
+mlflow run . -e p2-search
 ```
 
-El experimento se llama `mibici-equipo50` y genera los runs
-`p2-baseline-logistic-regression` y `p2-candidato-logistic-regression`. Ambos incluyen
-etiquetas `team`, `question` y `git_commit`; parámetros de fechas/versión; métricas;
-matrices de confusión; metadatos de datos y el modelo serializado.
+El experimento se llama `mibici-equipo50`. La corrida padre usa `stage_of_work=search` y
+sus hijas usan `baseline` o `candidate`; todas incluyen además `team`, `question`,
+`model_family` y `git_commit`. Cada candidata registra parámetros de fechas y versión,
+métricas, estabilidad mensual, costos de ajuste/inferencia, matrices de confusión, curvas
+precisión-recall, metadatos de datos, configuración y el modelo con firma y ejemplo.
+
+## 6. Resultado y selección para producción
+
+La búsqueda real mantuvo la versión `928ac1753461`, el corte `2026-07-20` y las mismas
+2,637,387 filas de entrenamiento y 810,713 de prueba en las cuatro corridas.
+
+| Modelo | Macro-F1 | Precision bicis/anclajes | Recall bicis/anclajes | Macro-F1 mensual mínimo | Fit |
+|---|---:|---:|---:|---:|---:|
+| Baseline | 0.1474 | 0.3837 / 0.4209 | 0.0862 / 0.0942 | 0.1404 | 37.0 s |
+| Candidato 1, balanced | 0.0253 | 0.0100 / 0.0157 | 0.8929 / 0.8678 | 0.0212 | 168.5 s |
+| Candidato 2, peso 2× | 0.1684 | 0.2840 / 0.3601 | 0.1002 / 0.1278 | 0.1601 | 41.7 s |
+| **Candidato 3, peso 5×** | **0.2068** | 0.2238 / 0.2602 | **0.1394 / 0.2258** | **0.1936** | 85.6 s |
+
+Se elige el **candidato 3**. Su macro-F1 mejora 0.0594 puntos, o 40.3% relativo, frente al
+baseline; aumenta especialmente la detección del riesgo de falta de anclajes sin provocar
+la avalancha de falsas alarmas del balanceo completo. Su desviación mensual es 0.0162 y el
+peor mes (0.1936) supera al peor mes del baseline (0.1404), evidencia de una mejora estable.
+Aunque el entrenamiento tarda 2.3 veces más, es un proceso offline y la inferencia sobre
+810,713 filas tarda 2.48 s, prácticamente lo mismo que los 2.50 s del baseline. El modelo
+quedó registrado como `mibici-equipo50-p2-riesgo` versión 1 y alias `champion`. La versión
+conserva como metadatos su experimento, corrida de origen, commit y versión de datos, y se
+puede cargar con `models:/mibici-equipo50-p2-riesgo@champion`.

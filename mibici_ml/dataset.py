@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import unicodedata
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from loguru import logger
@@ -72,8 +73,11 @@ P3_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def _open_url(url: str):
+    if urlsplit(url).scheme.lower() != "https":
+        raise ValueError("Solo se permiten descargas mediante HTTPS.")
     request = Request(url, headers={"User-Agent": "mibici-equipo50/1.0"})
-    return urlopen(request, timeout=120)
+    # B310 is safe here because the URL scheme is restricted immediately above.
+    return urlopen(request, timeout=120)  # nosec B310
 
 
 def list_public_drive_folder(folder_id: str = DEFAULT_FOLDER_ID) -> list[dict[str, str]]:
