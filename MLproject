@@ -1,5 +1,7 @@
 name: mibici-p1
 
+python_env: python_env.yaml
+
 entry_points:
   ingest:
     command: "python -m mibici_ml.dataset prepare"

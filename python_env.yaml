@@ -1,0 +1,20 @@
+python: "3.12.15"
+build_dependencies:
+  - pip
+  - setuptools
+  - wheel
+  - flit_core>=3.2,<4
+dependencies:
+  - mlflow==3.17.1
+  - numpy==2.5.4
+  - pandas==3.0.6
+  - pyarrow==25.0.1
+  - scikit-learn==1.9.1
+  - matplotlib==3.11.2
+  - joblib==1.6.0
+  - loguru==0.7.3
+  - python-dotenv==1.2.4
+  - typer==0.27.3
+  - tqdm==4.70.1
+  - pip
+  - -e .
