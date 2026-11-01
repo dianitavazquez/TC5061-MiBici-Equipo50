@@ -29,6 +29,10 @@ REFERENCES_DIR = PROJ_ROOT / "references"
 MLFLOW_TRACKING_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
 MLFLOW_EXPERIMENT = "mibici-equipo50"
 
+# Validación de datos con DeepChecks (HTML en reports/ y resúmenes en references/)
+VALIDATION_REPORTS_DIR = REPORTS_DIR / "deepchecks"
+VALIDATION_SUMMARY_DIR = REFERENCES_DIR / "validacion"
+
 # P1: regresión de demanda
 P1_TRIPS_FILE = PROCESSED_DATA_DIR / "mibici_trips.parquet"
 P1_MANIFEST_FILE = PROCESSED_DATA_DIR / "manifest.json"
@@ -101,5 +105,3 @@ CLUSTERING_SEED = 42
 # Validación de datos con DeepChecks
 CLUSTERING_DRIFT_CUTOFF = "2026-07-01"  # train: sep 2025 a jun 2026; test: jul a sep 2026
 CLUSTERING_MAX_DUPLICATE_RATIO = 0.001  # viajes idénticos con distinto viaje_id que se toleran
-CLUSTERING_VALIDATION_DIR = REPORTS_DIR / "deepchecks"
-CLUSTERING_VALIDATION_FILE = REFERENCES_DIR / "validacion_clustering.json"

@@ -1,57 +1,13 @@
 {
-  "pregunta": "P3",
-  "version_datos": "faf7138becd5",
+  "datos": "p3",
+  "version_fuente": "928ac1753461",
+  "version_datos_p3": "faf7138becd5",
   "corte_drift": "2026-07-01",
   "viajes_train": 3497879,
   "viajes_test": 1220951,
   "estaciones_drift_perfil": 381,
   "reportes": {
-    "integridad_viajes_crudos": {
-      "aprobado": false,
-      "chequeos": {
-        "Data Duplicates": {
-          "aprobado": false,
-          "detalle": [
-            "Found 0.02% duplicate data"
-          ],
-          "valor": 0.000155
-        },
-        "Single Value in Column": {
-          "aprobado": true,
-          "detalle": [
-            "Passed for 5 relevant columns"
-          ],
-          "valor": null
-        },
-        "Mixed Data Types": {
-          "aprobado": true,
-          "detalle": [
-            "5 columns passed: found 0 columns with negligible types mix, and 5 columns without any types mix"
-          ],
-          "valor": null
-        },
-        "Mixed Nulls": {
-          "aprobado": true,
-          "detalle": [
-            "Passed for 5 relevant columns"
-          ],
-          "valor": null
-        },
-        "PercentOfNulls": {
-          "aprobado": true,
-          "detalle": [
-            "Passed for 4 relevant columns"
-          ],
-          "valor": {
-            "inicio": 0.0,
-            "fin": 0.0,
-            "origen_id": 0.0,
-            "destino_id": 0.0
-          }
-        }
-      }
-    },
-    "integridad_viajes_limpios": {
+    "integridad_viajes": {
       "aprobado": true,
       "chequeos": {
         "Single Value in Column": {
@@ -175,7 +131,15 @@
           "detalle": [
             "Found drift value of: 0.12, corresponding to a domain classifier AUC of: 0.56"
           ],
-          "valor": 0.1187
+          "valor": {
+            "drift": 0.1187,
+            "auc": 0.5593,
+            "variables_mas_importantes": {
+              "origen_id": 0.933,
+              "duracion_min": 0.067,
+              "hora": 0.0
+            }
+          }
         }
       }
     },
@@ -204,7 +168,15 @@
           "detalle": [
             "Found drift value of: 0.39, corresponding to a domain classifier AUC of: 0.7"
           ],
-          "valor": 0.3902
+          "valor": {
+            "drift": 0.3902,
+            "auc": 0.6951,
+            "variables_mas_importantes": {
+              "duracion_mediana": 0.594,
+              "balance": 0.276,
+              "prop_tarde": 0.131
+            }
+          }
         }
       }
     }
