@@ -339,6 +339,50 @@ python -m pytest tests/test_data_processing.py tests/test_data_validation.py -v
 
 Uso `deepchecks==0.19.1`, que necesita `setuptools<81` y `plotly==5.24.1`; los tres ya están en `requirements.txt`. Al importarse, DeepChecks manda un aviso anónimo a su servidor, así que lo apago en `mibici_ml/config.py` con `DISABLE_DEEPCHECKS_ANONYMOUS_TELEMETRY`.
 
+### Pruebas unitarias de entrenamiento P1, P2 y P3
+
+Las pruebas unitarias de entrenamiento están implementadas con **PyTest** en `tests/test_model_training.py` y cubren los tres problemas del proyecto:
+
+- **P1 — Regresión:** validación de funciones de entrenamiento y evaluación de modelos de predicción de demanda.
+- **P2 — Clasificación:** validación de componentes del entrenamiento y evaluación de los modelos de riesgo.
+- **P3 — Clustering:** validación de funciones de agrupamiento y evaluación de modelos.
+
+Estas pruebas utilizan datos sintéticos y no requieren descargar los archivos CSV originales de MiBici ni iniciar un servidor MLflow.
+
+#### Ejecución
+
+Desde la raíz del repositorio, con el entorno virtual activado y las dependencias instaladas:
+
+```bash
+python -m pytest tests/test_model_training.py -v
+```
+
+Para ejecutar todas las pruebas del proyecto:
+
+```bash
+python -m pytest tests/ -v
+```
+
+#### Resultados de la ejecución
+
+| Validación | Resultado |
+|---|---|
+| Pruebas unitarias de entrenamiento | 15 passed |
+| Suite completa | 91 passed, 4 skipped, 2 warnings |
+| Dependencias (`pip check`) | No broken requirements found |
+
+Las cuatro pruebas omitidas corresponden a validaciones que requieren artefactos de datos no disponibles en el entorno de ejecución.
+
+#### Evidencias
+
+**Pruebas unitarias de entrenamiento**
+
+![Pruebas unitarias de entrenamiento P1, P2 y P3](tests/evidencia_test_model_training.png)
+
+**Suite completa de pruebas**
+
+![Ejecución de la suite completa](tests/evidencia_suite_completa.png)
+
 ## Project Organization
 
 ```
