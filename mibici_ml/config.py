@@ -6,6 +6,8 @@ from loguru import logger
 
 # Load environment variables from .env file if it exists
 load_dotenv()
+# DeepChecks manda un aviso anónimo a su servidor al importarse; lo apagamos por privacidad
+os.environ.setdefault("DISABLE_DEEPCHECKS_ANONYMOUS_TELEMETRY", "True")
 
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +31,10 @@ MLFLOW_EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT_NAME", "mibici-equipo50")
 
 # Defaults shared by the MLflow Project entry points and the Python training code.
 RANDOM_SEED = 42
+
+# Validación de datos con DeepChecks (HTML en reports/ y resúmenes en references/)
+VALIDATION_REPORTS_DIR = REPORTS_DIR / "deepchecks"
+VALIDATION_SUMMARY_DIR = REFERENCES_DIR / "validacion"
 
 # P1: regresión de demanda
 P1_TRIPS_FILE = PROCESSED_DATA_DIR / "mibici_trips.parquet"
@@ -114,6 +120,11 @@ CLUSTERING_FEATURES_FILE = PROCESSED_DATA_DIR / "perfil_estaciones_clustering.pa
 CLUSTERING_MLFLOW_URI = MLFLOW_TRACKING_URI
 CLUSTERING_MLFLOW_EXPERIMENT = MLFLOW_EXPERIMENT
 
+# Parámetros de entrenamiento P3
 CLUSTERING_SEED = RANDOM_SEED
 CLUSTERING_K = 4
 CLUSTERING_N_INIT = 10
+
+# Validación de datos con DeepChecks
+CLUSTERING_DRIFT_CUTOFF = "2026-07-01"  # train: sep 2025 a jun 2026; test: jul a sep 2026
+CLUSTERING_MAX_DUPLICATE_RATIO = 0.001  # viajes idénticos con distinto viaje_id que se toleran

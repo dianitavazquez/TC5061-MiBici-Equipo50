@@ -1,0 +1,190 @@
+{
+  "datos": "p2",
+  "version_fuente": "928ac1753461",
+  "corte_drift": "2026-07-20T00:00:00",
+  "filas_train": 2637387,
+  "filas_test": 810713,
+  "proporcion_riesgo": {
+    "sin_riesgo": 0.9963,
+    "sin_anclajes": 0.0022,
+    "sin_bicis": 0.0015,
+    "ambos": 0.0
+  },
+  "reportes": {
+    "integridad_viajes": {
+      "aprobado": false,
+      "chequeos": {
+        "Data Duplicates": {
+          "aprobado": false,
+          "detalle": [
+            "Found 0.03% duplicate data"
+          ],
+          "valor": 0.000326
+        },
+        "Single Value in Column": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 4 relevant columns"
+          ],
+          "valor": null
+        },
+        "Mixed Data Types": {
+          "aprobado": true,
+          "detalle": [
+            "4 columns passed: found 0 columns with negligible types mix, and 4 columns without any types mix"
+          ],
+          "valor": null
+        },
+        "Mixed Nulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 4 relevant columns"
+          ],
+          "valor": null
+        },
+        "PercentOfNulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 4 relevant columns"
+          ],
+          "valor": {
+            "Inicio_del_viaje": 0.0,
+            "Fin_del_viaje": 0.0,
+            "Origen_Id": 0.0,
+            "Destino_Id": 0.0
+          }
+        }
+      }
+    },
+    "integridad_panel": {
+      "aprobado": true,
+      "chequeos": {
+        "Single Value in Column": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 32 relevant columns"
+          ],
+          "valor": null
+        },
+        "Mixed Data Types": {
+          "aprobado": true,
+          "detalle": [
+            "32 columns passed: found 0 columns with negligible types mix, and 32 columns without any types mix"
+          ],
+          "valor": null
+        },
+        "Mixed Nulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 32 relevant columns"
+          ],
+          "valor": null
+        },
+        "PercentOfNulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 31 relevant columns"
+          ],
+          "valor": {
+            "station_id": 0.0,
+            "departures": 0.0,
+            "arrivals": 0.0,
+            "max_bike_imbalance": 0.0,
+            "min_bike_imbalance": 0.0,
+            "capacity": 0.0,
+            "net_departures": 0.0,
+            "risk_no_bikes": 0.0,
+            "risk_no_docks": 0.0,
+            "departures_lag_1h": 0.0,
+            "departures_mean_3h": 0.0,
+            "departures_mean_24h": 0.0,
+            "departures_mean_168h": 0.0,
+            "arrivals_lag_1h": 0.0,
+            "arrivals_mean_3h": 0.0,
+            "arrivals_mean_24h": 0.0,
+            "arrivals_mean_168h": 0.0,
+            "net_departures_lag_1h": 0.0,
+            "net_departures_mean_3h": 0.0,
+            "net_departures_mean_24h": 0.0,
+            "net_departures_mean_168h": 0.0,
+            "risk_no_bikes_lag_1h": 0.0,
+            "risk_no_docks_lag_1h": 0.0,
+            "hour_sin": 0.0,
+            "hour_cos": 0.0,
+            "weekday_sin": 0.0,
+            "weekday_cos": 0.0,
+            "month_sin": 0.0,
+            "month_cos": 0.0,
+            "is_weekend": 0.0,
+            "riesgo": 0.0
+          }
+        },
+        "Data Duplicates": {
+          "aprobado": true,
+          "detalle": [
+            "Found 0% duplicate data"
+          ],
+          "valor": 0.0
+        }
+      }
+    },
+    "drift": {
+      "aprobado": false,
+      "chequeos": {
+        "Feature Drift": {
+          "aprobado": false,
+          "detalle": [
+            "Failed for 2 out of 23 columns.\nFound 2 numeric columns with Kolmogorov-Smirnov above threshold: {'month_sin': '0.53', 'month_cos': '0.82'}"
+          ],
+          "valor": {
+            "capacity": 0.0447,
+            "departures_lag_1h": 0.0197,
+            "arrivals_lag_1h": 0.0181,
+            "net_departures_lag_1h": 0.0129,
+            "departures_mean_3h": 0.0285,
+            "departures_mean_24h": 0.0518,
+            "departures_mean_168h": 0.0664,
+            "arrivals_mean_3h": 0.0229,
+            "arrivals_mean_24h": 0.0454,
+            "arrivals_mean_168h": 0.0615,
+            "net_departures_mean_3h": 0.0172,
+            "net_departures_mean_24h": 0.0648,
+            "net_departures_mean_168h": 0.1222,
+            "risk_no_bikes_lag_1h": 0.0,
+            "risk_no_docks_lag_1h": 0.0004,
+            "hour_sin": 0.0055,
+            "hour_cos": 0.0027,
+            "weekday_sin": 0.0175,
+            "weekday_cos": 0.0215,
+            "month_sin": 0.5335,
+            "month_cos": 0.8168,
+            "is_weekend": 0.0104,
+            "station_id": 0
+          }
+        },
+        "Multivariate Drift": {
+          "aprobado": false,
+          "detalle": [
+            "Found drift value of: 0.99, corresponding to a domain classifier AUC of: 0.99"
+          ],
+          "valor": {
+            "drift": 0.988,
+            "auc": 0.994,
+            "variables_mas_importantes": {
+              "month_cos": 0.667,
+              "month_sin": 0.333,
+              "capacity": 0.0
+            }
+          }
+        },
+        "Label Drift": {
+          "aprobado": true,
+          "detalle": [
+            "Label's drift score Cramer's V is 0"
+          ],
+          "valor": 0
+        }
+      }
+    }
+  }
+}
