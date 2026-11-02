@@ -1,0 +1,150 @@
+{
+  "datos": "p1",
+  "version_fuente": "928ac1753461",
+  "corte_drift": "2026-07-15T09:00:00",
+  "filas_train": 2777345,
+  "filas_test": 852149,
+  "reportes": {
+    "integridad_viajes": {
+      "aprobado": true,
+      "chequeos": {
+        "Single Value in Column": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 5 relevant columns"
+          ],
+          "valor": null
+        },
+        "Mixed Data Types": {
+          "aprobado": true,
+          "detalle": [
+            "5 columns passed: found 0 columns with negligible types mix, and 5 columns without any types mix"
+          ],
+          "valor": null
+        },
+        "Mixed Nulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 5 relevant columns"
+          ],
+          "valor": null
+        },
+        "PercentOfNulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 4 relevant columns"
+          ],
+          "valor": {
+            "Destino_Id": 0.0,
+            "Fin_del_viaje": 0.0,
+            "Inicio_del_viaje": 0.0,
+            "Origen_Id": 0.0
+          }
+        },
+        "Data Duplicates": {
+          "aprobado": true,
+          "detalle": [
+            "Found 0% duplicate data"
+          ],
+          "valor": 0.0
+        }
+      }
+    },
+    "integridad_features": {
+      "aprobado": true,
+      "chequeos": {
+        "Single Value in Column": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 12 relevant columns"
+          ],
+          "valor": null
+        },
+        "Mixed Data Types": {
+          "aprobado": true,
+          "detalle": [
+            "12 columns passed: found 0 columns with negligible types mix, and 12 columns without any types mix"
+          ],
+          "valor": null
+        },
+        "Mixed Nulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 12 relevant columns"
+          ],
+          "valor": null
+        },
+        "PercentOfNulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 10 relevant columns"
+          ],
+          "valor": {
+            "station_id": 0.0,
+            "hour": 0.0,
+            "day_of_week": 0.0,
+            "month": 0.0,
+            "is_weekend": 0.0,
+            "departures_lag_1": 0.0,
+            "departures_lag_24": 0.0,
+            "departures_lag_168": 0.0,
+            "departures_mean_24": 0.0,
+            "departures_mean_168": 0.0
+          }
+        },
+        "Data Duplicates": {
+          "aprobado": true,
+          "detalle": [
+            "Found 0% duplicate data"
+          ],
+          "valor": 0.0
+        }
+      }
+    },
+    "drift": {
+      "aprobado": false,
+      "chequeos": {
+        "Feature Drift": {
+          "aprobado": false,
+          "detalle": [
+            "Failed for 1 out of 10 columns.\nFound 1 numeric columns with Kolmogorov-Smirnov above threshold: {'month': '0.58'}"
+          ],
+          "valor": {
+            "station_id": 0,
+            "hour": 0.0058,
+            "day_of_week": 0.0056,
+            "month": 0.5837,
+            "is_weekend": 0.0009,
+            "departures_lag_1": 0.0215,
+            "departures_lag_24": 0.0205,
+            "departures_lag_168": 0.0281,
+            "departures_mean_24": 0.0542,
+            "departures_mean_168": 0.0659
+          }
+        },
+        "Multivariate Drift": {
+          "aprobado": false,
+          "detalle": [
+            "Found drift value of: 0.87, corresponding to a domain classifier AUC of: 0.93"
+          ],
+          "valor": {
+            "drift": 0.869,
+            "auc": 0.9345,
+            "variables_mas_importantes": {
+              "month": 1.0,
+              "hour": 0.0,
+              "day_of_week": 0.0
+            }
+          }
+        },
+        "Label Drift": {
+          "aprobado": true,
+          "detalle": [
+            "Label's drift score Kolmogorov-Smirnov is 0.02"
+          ],
+          "valor": 0.0182
+        }
+      }
+    }
+  }
+}

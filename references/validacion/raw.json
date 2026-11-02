@@ -1,0 +1,52 @@
+{
+  "datos": "raw",
+  "version_fuente": "928ac1753461",
+  "viajes": 4874666,
+  "reportes": {
+    "integridad_viajes": {
+      "aprobado": false,
+      "chequeos": {
+        "Data Duplicates": {
+          "aprobado": false,
+          "detalle": [
+            "Found 0.02% duplicate data"
+          ],
+          "valor": 0.000155
+        },
+        "Single Value in Column": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 5 relevant columns"
+          ],
+          "valor": null
+        },
+        "Mixed Data Types": {
+          "aprobado": true,
+          "detalle": [
+            "5 columns passed: found 0 columns with negligible types mix, and 5 columns without any types mix"
+          ],
+          "valor": null
+        },
+        "Mixed Nulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 5 relevant columns"
+          ],
+          "valor": null
+        },
+        "PercentOfNulls": {
+          "aprobado": true,
+          "detalle": [
+            "Passed for 4 relevant columns"
+          ],
+          "valor": {
+            "inicio": 0.0,
+            "fin": 0.0,
+            "origen_id": 0.0,
+            "destino_id": 0.0
+          }
+        }
+      }
+    }
+  }
+}

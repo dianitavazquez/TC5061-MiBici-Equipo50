@@ -66,6 +66,25 @@ plantilla versionada y modifica únicamente tu archivo local:
 ```bash
 cp .env.example .env
 ```
+### Preparación, validación de datos y entrenamiento
+
+```bash
+# Descarga los meses seleccionados y la nomenclatura, limpia, convierte a Parquet
+# y genera los manifiestos con conteos y hashes.
+python -m mibici_ml.dataset prepare
+
+# Construye las variables reutilizables.
+python -m mibici_ml.features build-p1
+python -m mibici_ml.features build-p3
+
+# Valida con DeepChecks los datos de las tres preguntas.
+python -m mibici_ml.validation all
+
+# Ejecuta los experimentos base y candidatos.
+python -m mibici_ml.modeling.train train-p1
+python -m mibici_ml.modeling.train train-p2
+python -m mibici_ml.modeling.train train-p3
+```
 
 `.env`, variantes locales, llaves privadas y archivos comunes de credenciales están excluidos
 por `.gitignore`. No agregues tokens, contraseñas, datos personales ni credenciales reales al
@@ -260,6 +279,110 @@ otra versión de MLflow. Verifica `python --version` y `python -m mlflow --versi
 deben indicar Python 3.12 y MLflow 3.17.1, respectivamente. No borres `mlflow.db`, pues
 contiene los experimentos registrados.
 
+## Validación de datos con DeepChecks
+
+Para revisar la calidad de todos los datos del proyecto uso [DeepChecks](https://docs.deepchecks.com/). Después de `prepare`, `build-p1` y `build-p3` corro:
+
+```bash
+python -m mibici_ml.validation all
+```
+
+La corrida completa tarda unos 3 minutos. También se puede correr un solo grupo cambiando `all` por `raw`, `p1`, `p2` o `p3`. Cada grupo guarda sus reportes HTML en `reports/deepchecks/<grupo>/` (no se suben a Git porque muestran viajes individuales) y un resumen con el resultado y los números de cada condición en `references/validacion/<grupo>.json`.
+
+Lo que revisa cada grupo:
+
+1. `raw`: los 13 CSV mensuales que usan las tres preguntas, sin columnas personales y antes de limpiar.
+2. `p1`: los viajes que deja `ingest`, las features por estación y hora, y el drift entre train y test con el mismo corte de `train_p1` (el último 20 % de las horas, desde el 15 de julio de 2026).
+3. `p2`: los viajes que deja `load_clean_trips`, el panel estación-hora que arma `train_p2` y el drift con su mismo corte (desde el 20 de julio de 2026). Para medir el drift de la etiqueta junto `risk_no_bikes` y `risk_no_docks` en una sola categoría.
+4. `p3`: los viajes limpios, el perfil de estaciones y el drift entre septiembre de 2025 a junio de 2026 (train) y julio a septiembre de 2026 (test), por viaje y en el perfil de las 381 estaciones que aparecen en los dos periodos.
+
+En la integridad reviso columnas con un solo valor, tipos mezclados, nulos (también nulos escritos de distintas formas) y filas duplicadas. En el drift, DeepChecks compara cada variable con Kolmogorov-Smirnov o V de Cramér (límite 0.2), compara la etiqueta (límite 0.15) y entrena un clasificador que intenta distinguir train de test (límite de 0.25, que equivale a un AUC de 0.625). Los duplicados los marca como aviso y no como falla.
+
+| Datos | Revisión | Resultado | Qué encontré |
+|---|---|---|---|
+| Crudos | Integridad | Aviso | 4,874,666 viajes sin nulos ni tipos mezclados, pero con 758 filas duplicadas (0.016 %). |
+| P1 | Integridad de viajes | Pasa | 4,873,908 viajes sin nulos ni duplicados. |
+| P1 | Integridad de features | Pasa | 3,629,494 filas sin nulos, duplicados ni tipos mezclados. |
+| P1 | Drift | No pasa | Solo `month` (0.58). El clasificador separa train y test con AUC de 0.93 usando únicamente el mes. La etiqueta casi no cambia (0.02). |
+| P2 | Integridad de viajes | Aviso | 4,558,080 viajes sin nulos, pero con 0.03 % de filas repetidas. |
+| P2 | Integridad del panel | Pasa | 3,448,100 filas sin nulos, duplicados ni tipos mezclados. |
+| P2 | Drift | No pasa | Solo `month_sin` (0.53) y `month_cos` (0.82). El clasificador llega a AUC de 0.99 solo con el mes. La etiqueta no cambia (0.00). |
+| P3 | Integridad de viajes | Pasa | Sin nulos. Quedan 781 viajes repetidos con distinto `viaje_id` (0.017 %), debajo del límite de 0.1 %. |
+| P3 | Integridad del perfil | Pasa | 468 estaciones sin nulos, duplicados ni tipos mezclados. |
+| P3 | Drift por viaje | Pasa | El puntaje más alto es 0.05 (duración) y el AUC es 0.56. |
+| P3 | Drift del perfil | No pasa | `duracion_mediana` tiene 0.23 y el AUC es 0.70. |
+
+Lo que encontré:
+
+1. Los 758 duplicados de los crudos los quitan las ingestas de P1 y P3. P2 lee los CSV directo con `load_clean_trips`, que no quita duplicados, y por eso le quedan 1,484 filas repetidas. Son muy pocas frente a 4.56 millones de viajes, pero conviene agregar ese paso.
+2. Los 781 viajes repetidos de P3 tienen la misma hora de inicio y fin y las mismas estaciones, pero distinto `viaje_id`. No los quito porque no sé si son un error del sistema o personas que salieron juntas, y casi no mueven el perfil: al quitarlos, `viajes_dia` cambia como máximo 0.13 y la duración mediana 0.03 minutos. Por eso dejé un límite de 0.1 % (`CLUSTERING_MAX_DUPLICATE_RATIO` en `config.py`).
+3. En P1 y P2 el drift viene solo del mes. Con el corte por fecha, el test queda entre mediados de julio y septiembre de 2026; en train agosto no aparece y julio y septiembre casi no (se ve en la captura de P1). Las demás variables y la etiqueta no cambian, así que el modelo se evalúa en meses que casi no vio al entrenar. Lo dejo documentado para que los responsables de P1 y P2 decidan si conservan la variable del mes.
+4. En P3 sí cambia el comportamiento de las estaciones. De julio a septiembre la duración mediana de los viajes por estación baja de 9.97 a 9.07 minutos y el balance entre salidas y llegadas también cambia un poco (0.16, debajo del límite). Puede ser por la temporada de lluvias o las vacaciones, pero no lo comprobé. Como el modelo de P3 describe el año completo esto no lo invalida, pero si se entrena solo con meses recientes los grupos podrían cambiar.
+
+Conviene repetir esta validación cada vez que se agreguen meses.
+
+![Integridad de los viajes crudos](tests/evidencia_deepchecks_raw.png)
+
+![Drift de P1](tests/evidencia_deepchecks_p1_drift.png)
+
+![Drift del perfil de P3](tests/evidencia_deepchecks_p3_drift.png)
+
+### Pruebas de los datos
+
+Las pruebas de esta validación están en `tests/test_data_validation.py`. Con tablas pequeñas comprueban que las suites sí detectan nulos, nulos escritos de distintas formas, tipos mezclados, duplicados, drift en las variables y drift solo en la etiqueta. También comprueban que el corte de P1 es el mismo de `train_p1`, que la etiqueta de P2 junta bien sus dos etiquetas y que en P3 el corte de fechas no mezcla periodos y solo se comparan estaciones que aparecen en ambos. Las tres últimas revisan los datos reales de P1 y P3 y se saltan si todavía no se corre la ingesta. Las pruebas del procesamiento de datos (lectura, limpieza y versionado) están en `tests/test_data_processing.py`.
+
+```bash
+python -m pytest tests/test_data_processing.py tests/test_data_validation.py -v
+```
+
+![Pruebas del procesamiento y la validación de datos](tests/evidencia_test_data_validation.png)
+
+Uso `deepchecks==0.19.1`, que necesita `setuptools<81` y `plotly==5.24.1`; los tres ya están en `requirements.txt`. Al importarse, DeepChecks manda un aviso anónimo a su servidor, así que lo apago en `mibici_ml/config.py` con `DISABLE_DEEPCHECKS_ANONYMOUS_TELEMETRY`.
+
+### Pruebas unitarias de entrenamiento P1, P2 y P3
+
+Las pruebas unitarias de entrenamiento están implementadas con **PyTest** en `tests/test_model_training.py` y cubren los tres problemas del proyecto:
+
+- **P1 — Regresión:** validación de funciones de entrenamiento y evaluación de modelos de predicción de demanda.
+- **P2 — Clasificación:** validación de componentes del entrenamiento y evaluación de los modelos de riesgo.
+- **P3 — Clustering:** validación de funciones de agrupamiento y evaluación de modelos.
+
+Estas pruebas utilizan datos sintéticos y no requieren descargar los archivos CSV originales de MiBici ni iniciar un servidor MLflow.
+
+#### Ejecución
+
+Desde la raíz del repositorio, con el entorno virtual activado y las dependencias instaladas:
+
+```bash
+python -m pytest tests/test_model_training.py -v
+```
+
+Para ejecutar todas las pruebas del proyecto:
+
+```bash
+python -m pytest tests/ -v
+```
+
+#### Resultados de la ejecución
+
+| Validación | Resultado |
+|---|---|
+| Pruebas unitarias de entrenamiento | 15 passed |
+| Suite completa | 91 passed, 4 skipped, 2 warnings |
+| Dependencias (`pip check`) | No broken requirements found |
+
+Las cuatro pruebas omitidas corresponden a validaciones que requieren artefactos de datos no disponibles en el entorno de ejecución.
+
+#### Evidencias
+
+**Pruebas unitarias de entrenamiento**
+
+![Pruebas unitarias de entrenamiento P1, P2 y P3](tests/evidencia_test_model_training.png)
+
+**Suite completa de pruebas**
+
+![Ejecución de la suite completa](tests/evidencia_suite_completa.png)
+
 ## Project Organization
 
 ```
@@ -379,6 +502,7 @@ mlflow run . -e train -P question=p3 -P model=candidato \
 3. `mibici_ml/modeling/train.py` entrena el baseline y el modelo candidato y registra cada run en MLflow con sus parámetros, métricas, artefactos, el modelo y las etiquetas `team`, `question` y `git_commit`.
 4. `mibici_ml/plots.py` contiene las gráficas de los tres modelos, incluido el mapa de los grupos y el heatmap de su perfil. Se guardan en MLflow y en `reports/figures/`.
 5. `notebooks/1.0-cavm-eda-clustering.ipynb` tiene la exploración de las duraciones que usé para definir las reglas de limpieza.
+6. `mibici_ml/validation.py` valida con DeepChecks los datos de las tres preguntas. Los resultados están en la sección [Validación de datos con DeepChecks](#validación-de-datos-con-deepchecks).
 
 Todas las rutas, fechas y la semilla están en `mibici_ml/config.py`.
 
