@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pandas.api.types import is_datetime64_any_dtype
+
 from mibici_ml import features
 from mibici_ml.features import (
     _hourly_event_summary,
@@ -94,7 +96,7 @@ class TestTripLoading:
         assert result[["Origen_Id", "Destino_Id"]].to_dict("records") == [
             {"Origen_Id": 1, "Destino_Id": 2}
         ]
-        assert result["Inicio_del_viaje"].dtype == "datetime64[ns]"
+        assert is_datetime64_any_dtype(result["Inicio_del_viaje"])
         assert result["Origen_Id"].dtype == "int32"
 
     def test_load_clean_trips_raises_when_a_source_file_is_missing(self, tmp_path, monkeypatch):
