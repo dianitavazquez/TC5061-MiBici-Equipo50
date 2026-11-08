@@ -220,6 +220,71 @@ Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 y P3 se admiten
 del primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
 un error explícito.
 
+## Despliegue con Docker
+
+La API con FastAPI y los modelos del proyecto se empaquetan en una imagen de Docker para que el servicio funcione igual en cualquier máquina. Yo lo probé con Docker Desktop 29 en Windows. El `Dockerfile` sigue el estándar OCI, así que también funciona con Podman cambiando `docker` por `podman` en los comandos.
+
+### Estrategia de despliegue
+
+Elegí inferencia en tiempo real: la API responde cada petición en el momento. P1 y P2 predicen la siguiente hora, así que una predicción por lotes llegaría tarde para el equipo de rebalanceo, y P3 solo consulta a qué grupo pertenece un perfil de estación. Los tres modelos son de scikit-learn y predicen en milisegundos, por lo que no hace falta una cola ni procesar por lotes.
+
+Para recuperar los modelos del Model Registry elegí la opción de empaquetarlos dentro de la imagen, en lugar de leerlos al arrancar con `MLFLOW_TRACKING_URI`. Antes del build, un script descarga cada modelo por su nombre y el alias `champion`, y el `Dockerfile` copia esa carpeta. Lo decidí así por dos razones:
+
+1. El contenedor no depende de un servidor de MLflow encendido, así que funciona en cualquier máquina.
+2. Nuestro tracking guarda los artefactos con rutas locales de Windows (por ejemplo `file:E:/.../mlruns/1`), que un contenedor Linux no puede leer aunque llegue al servidor.
+
+| Pregunta | Modelo en el registry | Alias |
+|---|---|---|
+| P2 | `mibici-equipo50-p2-riesgo` | `champion` |
+| P3 | `mibici-equipo50-p3-grupos` | `champion` |
+
+P1 (`mibici-equipo50-p1-demanda`) se agrega en cuanto su registro esté en `main`: basta con sumarlo a `SERVING_MODELS` en `mibici_ml/config.py` y repetir los pasos 1 y 2.
+
+### 1. Descargar los modelos del registry
+
+Primero los modelos deben estar registrados en tu máquina: P2 con `python -m mibici_ml.modeling.train search-p2` y P3 con los comandos de "Experimentos y Model Registry" de la sección de P3, que terminan con `p3-register`. Después se descargan con:
+
+```bash
+python -m mibici_ml.modeling.export_models --tracking-uri sqlite:///mlflow.db
+```
+
+Si el servidor de MLflow está encendido, también funciona sin `--tracking-uri`, porque toma `MLFLOW_TRACKING_URI`. El script guarda cada modelo en `models/serving/<pregunta>/` y escribe `models/serving/modelos.json` con el nombre, alias, versión, run y commit de cada uno, para saber exactamente qué versión trae la imagen. Esa carpeta está en `.gitignore`, porque los modelos no se suben a Git.
+
+### 2. Construir la imagen
+
+```bash
+docker build -t mibici-api:1.0 .
+```
+
+La imagen parte de `python:3.12.10-slim`, instala `requirements.txt`, copia el paquete `mibici_ml` y los modelos de `models/serving/`, y corre la API con un usuario sin privilegios. El `.dockerignore` deja fuera los datos, las bases de MLflow, `.env`, `.secrets/`, las pruebas y los notebooks, así que nada de eso llega a la imagen. La primera vez tarda unos 2 minutos y la imagen pesa alrededor de 1.8 GB.
+
+Si tu antivirus revisa las conexiones HTTPS (a mí me pasó con Norton), `pip` falla dentro del build con `CERTIFICATE_VERIFY_FAILED`, porque el contenedor no conoce el certificado del antivirus. En ese caso exporta el certificado raíz a `.secrets/`, que Git y Docker ignoran, y pásalo como secreto. Solo se usa durante la instalación y no queda guardado en la imagen. En PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .secrets | Out-Null
+$c = Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -like "*Norton Web/Mail Shield Root*" | Select-Object -First 1
+"-----BEGIN CERTIFICATE-----`n$([Convert]::ToBase64String($c.RawData, 'InsertLineBreaks'))`n-----END CERTIFICATE-----" | Out-File .secrets\norton_root.pem -Encoding ascii
+docker build --secret id=ca_extra,src=.secrets/norton_root.pem -t mibici-api:1.0 .
+```
+
+### 3. Levantar el contenedor
+
+```bash
+docker run -d --name mibici-api -p 8000:8000 mibici-api:1.0
+docker ps
+docker logs mibici-api
+```
+
+La API queda en <http://127.0.0.1:8000> y su documentación interactiva en <http://127.0.0.1:8000/docs>. La imagen tiene un healthcheck que consulta `GET /health` cada 30 segundos; cuando todo está bien, `docker ps` muestra el contenedor como `healthy`. Para detenerlo y borrarlo:
+
+```bash
+docker stop mibici-api
+docker rm mibici-api
+```
+
+### 4. Consumir la API
+
+<!-- Pendiente: ejemplo de petición y respuesta con la API final y la captura del contenedor respondiendo. -->
 
 ## Flujo de trabajo con Git y GitHub
 
