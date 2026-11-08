@@ -1,0 +1,52 @@
+artifact_path: "/Users/alexisvargas/Documentos/Maestri\u0301a/MLOps/bici-project/TC5061-MiBici-Equipo50/mlruns/1/models/m-2d6079734f5b4c94b2824a6cd4b2ebf9/artifacts"
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.12.7
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.5.1
+    skops_trusted_types: null
+is_signature_from_type_hint: false
+mlflow_version: 3.17.1
+model_id: m-2d6079734f5b4c94b2824a6cd4b2ebf9
+model_size_bytes: 20378
+model_uuid: m-2d6079734f5b4c94b2824a6cd4b2ebf9
+prompts: null
+run_id: 8981c76434b6469eb96bdfc45d261376
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "long", "name": "capacity", "required": true}, {"type": "double",
+    "name": "departures_lag_1h", "required": true}, {"type": "double", "name": "arrivals_lag_1h",
+    "required": true}, {"type": "double", "name": "net_departures_lag_1h", "required":
+    true}, {"type": "double", "name": "departures_mean_3h", "required": true}, {"type":
+    "double", "name": "departures_mean_24h", "required": true}, {"type": "double",
+    "name": "departures_mean_168h", "required": true}, {"type": "double", "name":
+    "arrivals_mean_3h", "required": true}, {"type": "double", "name": "arrivals_mean_24h",
+    "required": true}, {"type": "double", "name": "arrivals_mean_168h", "required":
+    true}, {"type": "double", "name": "net_departures_mean_3h", "required": true},
+    {"type": "double", "name": "net_departures_mean_24h", "required": true}, {"type":
+    "double", "name": "net_departures_mean_168h", "required": true}, {"type": "double",
+    "name": "risk_no_bikes_lag_1h", "required": true}, {"type": "double", "name":
+    "risk_no_docks_lag_1h", "required": true}, {"type": "double", "name": "hour_sin",
+    "required": true}, {"type": "double", "name": "hour_cos", "required": true}, {"type":
+    "double", "name": "weekday_sin", "required": true}, {"type": "double", "name":
+    "weekday_cos", "required": true}, {"type": "double", "name": "month_sin", "required":
+    true}, {"type": "double", "name": "month_cos", "required": true}, {"type": "integer",
+    "name": "is_weekend", "required": true}, {"type": "long", "name": "station_id",
+    "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "int8", "shape": [-1, 2]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-10-26 02:58:32.994360'

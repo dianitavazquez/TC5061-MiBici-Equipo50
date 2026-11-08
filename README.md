@@ -174,6 +174,48 @@ entrenamiento queden en el mismo experimento configurado por el proyecto.
 
 También se puede iniciar el mismo servidor con `make mlflow-ui`.
 
+### Recuperación del modelo para el servicio
+
+El servicio utilizará el clasificador P2 registrado como
+`mibici-equipo50-p2-riesgo`. La estrategia elegida es **empaquetar en la imagen una copia
+descargada del Model Registry**: el contenedor no depende de que cada integrante mantenga
+un servidor MLflow encendido. El alias `champion` se resuelve durante la descarga y el
+manifiesto conserva la versión numérica inmutable, el run de origen y los SHA-256.
+
+Con MLflow activo y `MLFLOW_TRACKING_URI` configurado, la copia se actualiza con:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5050
+make recover-model
+```
+
+El resultado queda en `models/serving/p2/`. La aplicación puede cargar la copia con:
+
+```python
+from mibici_ml.modeling.model_recovery import load_p2_model
+
+model = load_p2_model()
+```
+
+La firma de entrada y ejemplos reales viajan con el modelo en `MLmodel`,
+`input_example.json` y `serving_input_example.json`. Deben reutilizarse al definir el esquema
+Pydantic de la API; en particular, `is_weekend` fue registrado como entero de 32 bits y la
+salida es un arreglo de dos indicadores: riesgo de falta de bicicletas y de anclajes.
+
+También se conserva un modo remoto para desarrollo. En Podman, cuando MLflow corre en la
+máquina anfitriona, se configura así:
+
+```bash
+export MIBICI_MODEL_SOURCE=registry
+export MLFLOW_TRACKING_URI=http://host.containers.internal:5050
+export MLFLOW_MODEL_NAME=mibici-equipo50-p2-riesgo
+export MLFLOW_MODEL_ALIAS=champion
+```
+
+Puede fijarse `MLFLOW_MODEL_VERSION` en lugar del alias. Si se especifica una versión, esta
+tiene prioridad. Para Docker Desktop normalmente se usa `host.docker.internal` en lugar de
+`host.containers.internal`.
+
 ### 2. Ingesta y features
 
 La ingesta descarga los archivos seleccionados, genera perfiles y manifiestos con hashes,
