@@ -113,6 +113,11 @@ mlflow-ui: check-python
 	@echo "MLflow UI: http://127.0.0.1:5050 (deja esta terminal abierta; Ctrl+C para detener)"
 	MLFLOW_DISABLE_AGENT_HINT=1 $(PYTHON_INTERPRETER) -m mlflow server --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlartifacts --host 127.0.0.1 --port 5050 --workers 1
 
+## Download the P2 champion from MLflow Model Registry for container serving
+.PHONY: recover-model
+recover-model:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.model_recovery
+
 
 #################################################################################
 # Self Documenting Commands                                                     #
