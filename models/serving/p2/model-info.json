@@ -1,0 +1,17 @@
+{
+  "registered_model": "mibici-equipo50-p2-riesgo",
+  "version": 2,
+  "alias_at_download": "champion",
+  "model_uri": "models:/mibici-equipo50-p2-riesgo/2",
+  "run_id": "8981c76434b6469eb96bdfc45d261376",
+  "files_sha256": {
+    "MLmodel": "52b996b5e1a632c3593b484df72dd4301e4016baf84d0e829934c2b9e0126679",
+    "conda.yaml": "015767e2adf79e96c0dbe398650afe879e2ec5a5b59f5b75f2e7e5c04e61f26c",
+    "input_example.json": "0b1a2db0ec77e1b082010ad0b1246797389f3c5bb6584fa9f74fa37736c635cb",
+    "model.pkl": "63513a38dc13c872c57d5910cd527afb535bc98be75f88b2b1b809db36476977",
+    "python_env.yaml": "4699428f07f11de508c61f6db005dd183b10c45e2f723969534efc7c638ae25e",
+    "registered_model_meta": "cf6f3d9ec234c00a9c2ad15d799916092ba4049ea7834d762ced753b780bfbb4",
+    "requirements.txt": "a8a25f676b56b1b0f37225b114147bf15b75ba0cdcf216d72c2a6cd5bf9c103b",
+    "serving_input_example.json": "b409c6a9449279824ae3e7499e45b6219a140d3fbe086e429c2f4350fe029b31"
+  }
+}

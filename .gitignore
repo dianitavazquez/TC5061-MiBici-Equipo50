@@ -217,6 +217,10 @@ mlflow.db
 *.pkl
 *.joblib
 
+# El modelo de serving es una copia confiable y versionada recuperada del Model Registry.
+!/models/serving/
+!/models/serving/**
+
 # Local report exports and supporting screenshots
 /TC5061_Reporte_MLFlow_Equipo50_*.md
 *.pdf
