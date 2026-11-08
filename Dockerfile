@@ -1,12 +1,14 @@
-# Imagen de la API de MiBici con los modelos del Model Registry ya incluidos.
-# Antes del build hay que descargarlos con: python -m mibici_ml.modeling.export_models
+# Imagen de la API de MiBici con el modelo P2 del Model Registry ya incluido.
+# El modelo viene versionado en models/serving/p2; se actualiza con make recover-model.
 FROM python:3.12.10-slim
 
+# MIBICI_MODEL_SOURCE=bundled hace que la API cargue la copia empaquetada y no el registry
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    MIBICI_MODEL_SOURCE=bundled
 
 WORKDIR /app
 
@@ -24,7 +26,7 @@ RUN --mount=type=secret,id=ca_extra,required=false \
     && pip install -r /tmp/dependencias.txt \
     && rm -f /tmp/dependencias.txt /tmp/ca.pem
 
-# Código del proyecto y modelos descargados del registry
+# Código del proyecto y modelo descargado del registry
 COPY mibici_ml ./mibici_ml
 COPY models/serving ./models/serving
 

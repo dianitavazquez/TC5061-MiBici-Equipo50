@@ -162,11 +162,3 @@ CLUSTERING_REGISTERED_MODEL_DESCRIPTION = (
 # Validación de datos con DeepChecks
 CLUSTERING_DRIFT_CUTOFF = "2026-07-01"  # train: sep 2025 a jun 2026; test: jul a sep 2026
 CLUSTERING_MAX_DUPLICATE_RATIO = 0.001  # viajes idénticos con distinto viaje_id que se toleran
-
-# Modelos que sirve la API: se descargan del registry y se copian a la imagen de Docker
-SERVING_MODELS = {
-    "p2": P2_REGISTERED_MODEL_NAME,
-    "p3": CLUSTERING_REGISTERED_MODEL,
-}
-SERVING_ALIAS = "champion"
-SERVING_MODELS_DIR = MODELS_DIR / "serving"
