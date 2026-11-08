@@ -1,0 +1,22 @@
+# Solo se manda a Docker lo que necesita la imagen: sin datos, sin credenciales y sin MLflow
+.git
+.venv*
+.env
+.env.*
+.secrets/
+*.pem
+*.key
+data/
+mlruns/
+mlartifacts/
+mlflow*.db
+notebooks/
+references/
+reports/
+docs/
+tests/
+**/__pycache__
+**/.pytest_cache
+*.pdf
+models/*
+!models/serving/
