@@ -8,8 +8,7 @@ from typing import Any
 import typer
 
 from mibici_ml.config import (
-    CLUSTERING_K,
-    CLUSTERING_N_INIT,
+    CLUSTERING_CANDIDATES,
     P1_L2_REGULARIZATION,
     P1_LEARNING_RATE,
     P1_MAX_ITER,
@@ -18,7 +17,12 @@ from mibici_ml.config import (
     P2_MAX_ITER,
 )
 from mibici_ml.features import build_p1_command, build_p3_command
-from mibici_ml.modeling.train import search_p2, train_p1, train_p2, train_p3
+from mibici_ml.modeling.p3_experiments import (
+    buscar_k,
+    entrenar_modelo,
+    registrar_modelos,
+)
+from mibici_ml.modeling.train import search_p2, train_p1, train_p2
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -66,6 +70,18 @@ def run_p2_search() -> None:
     search_p2()
 
 
+@app.command("p3-search")
+def run_p3_search() -> None:
+    """Search the P3 number of clusters as nested MLflow runs."""
+    buscar_k()
+
+
+@app.command("p3-register")
+def run_p3_register() -> None:
+    """Register the P3 champion and challenger models in the Model Registry."""
+    registrar_modelos()
+
+
 @app.command("train")
 def train(
     question: str = typer.Option(...),
@@ -98,10 +114,13 @@ def train(
         )
         train_p2(models=(model,), model_params=params)
     elif question == "p3":
-        params = validate_hyperparameters(
-            question, supplied, {"k": CLUSTERING_K, "n_init": CLUSTERING_N_INIT}
-        )
-        train_p3(models=(model,), ks=(int(params["k"]),), n_init=int(params["n_init"]))
+        model = "candidato-1" if model == "candidato" else model
+        if model not in CLUSTERING_CANDIDATES:
+            raise typer.BadParameter(
+                f"Modelo P3 no válido: {model}. Usa {list(CLUSTERING_CANDIDATES)}"
+            )
+        params = validate_hyperparameters(question, supplied, CLUSTERING_CANDIDATES[model])
+        entrenar_modelo(model, params)
     else:
         raise typer.BadParameter("question debe ser p1, p2 o p3.")
 

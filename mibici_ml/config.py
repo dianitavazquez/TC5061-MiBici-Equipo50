@@ -125,6 +125,40 @@ CLUSTERING_SEED = RANDOM_SEED
 CLUSTERING_K = 4
 CLUSTERING_N_INIT = 10
 
+# P3: experimentación y Model Registry (segunda entrega)
+CLUSTERING_SEARCH_KS = [3, 4, 5, 6, 7, 8]  # búsqueda de k con nested runs
+CLUSTERING_STABILITY_RUNS = 20  # repeticiones con submuestras para medir estabilidad
+CLUSTERING_STABILITY_FRACTION = 0.8  # porcentaje de estaciones en cada submuestra
+# Baseline y candidatos: algoritmo, conjunto de variables e hiperparámetros
+CLUSTERING_CANDIDATES = {
+    "baseline": {"algoritmo": "kmeans", "variables": "basico", "k": 4, "n_init": 10},
+    "candidato-1": {"algoritmo": "kmeans", "variables": "uso", "k": 4, "n_init": 10},
+    "candidato-2": {
+        "algoritmo": "kmeans",
+        "variables": "uso_sin_mediodia",
+        "k": 4,
+        "n_init": 10,
+    },
+    "candidato-3": {
+        "algoritmo": "gmm",
+        "variables": "uso",
+        "k": 4,
+        "n_init": 3,
+        "covariance_type": "diag",
+    },
+}
+CLUSTERING_REGISTERED_MODEL = "mibici-equipo50-p3-grupos"
+
+# Modelo elegido para producción (champion) y siguiente mejor (challenger)
+CLUSTERING_CHAMPION = "candidato-1"
+CLUSTERING_CHALLENGER = "candidato-2"
+CLUSTERING_REGISTERED_MODEL_DESCRIPTION = (
+    "Modelo de la pregunta 3: agrupa las estaciones de MiBici según su perfil de uso "
+    "(viajes por día, balance, franjas horarias, fin de semana, viajes redondos y "
+    "duración). El alias champion es la versión en producción y challenger la siguiente "
+    "mejor."
+)
+
 # Validación de datos con DeepChecks
 CLUSTERING_DRIFT_CUTOFF = "2026-07-01"  # train: sep 2025 a jun 2026; test: jul a sep 2026
 CLUSTERING_MAX_DUPLICATE_RATIO = 0.001  # viajes idénticos con distinto viaje_id que se toleran
@@ -132,7 +166,7 @@ CLUSTERING_MAX_DUPLICATE_RATIO = 0.001  # viajes idénticos con distinto viaje_i
 # Modelos que sirve la API: se descargan del registry y se copian a la imagen de Docker
 SERVING_MODELS = {
     "p2": P2_REGISTERED_MODEL_NAME,
-    "p3": "mibici-equipo50-p3-grupos",
+    "p3": CLUSTERING_REGISTERED_MODEL,
 }
 SERVING_ALIAS = "champion"
 SERVING_MODELS_DIR = MODELS_DIR / "serving"
