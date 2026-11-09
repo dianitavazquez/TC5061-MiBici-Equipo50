@@ -306,7 +306,43 @@ docker rm mibici-api
 
 ### 3. Consumir la API
 
-<!-- Pendiente: ejemplo de petición y respuesta con la API final y la captura del contenedor respondiendo. -->
+La API tiene dos endpoints:
+
+1. `GET /health` revisa que el modelo esté cargado y responde `{"status": "ok", "model": "P2"}`.
+2. `POST /predict` recibe las 23 variables de una estación en una hora y devuelve los dos indicadores de riesgo para la hora siguiente.
+
+Ejemplo de petición con `curl` (Linux, macOS o Git Bash):
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"capacity":15,"departures_lag_1h":0,"arrivals_lag_1h":0,"net_departures_lag_1h":0,"departures_mean_3h":0.6667,"departures_mean_24h":2.875,"departures_mean_168h":2.2202,"arrivals_mean_3h":0.3333,"arrivals_mean_24h":2.8333,"arrivals_mean_168h":2.1548,"net_departures_mean_3h":0.3333,"net_departures_mean_24h":0.0417,"net_departures_mean_168h":0.0655,"risk_no_bikes_lag_1h":0,"risk_no_docks_lag_1h":0,"hour_sin":0,"hour_cos":1,"weekday_sin":0.9749,"weekday_cos":-0.2225,"month_sin":-1,"month_cos":0,"is_weekend":0,"station_id":2}'
+```
+
+La misma petición en PowerShell:
+
+```powershell
+$cuerpo = '{"capacity":15,"departures_lag_1h":0,"arrivals_lag_1h":0,"net_departures_lag_1h":0,"departures_mean_3h":0.6667,"departures_mean_24h":2.875,"departures_mean_168h":2.2202,"arrivals_mean_3h":0.3333,"arrivals_mean_24h":2.8333,"arrivals_mean_168h":2.1548,"net_departures_mean_3h":0.3333,"net_departures_mean_24h":0.0417,"net_departures_mean_168h":0.0655,"risk_no_bikes_lag_1h":0,"risk_no_docks_lag_1h":0,"hour_sin":0,"hour_cos":1,"weekday_sin":0.9749,"weekday_cos":-0.2225,"month_sin":-1,"month_cos":0,"is_weekend":0,"station_id":2}'
+Invoke-RestMethod http://127.0.0.1:8000/predict -Method Post -ContentType "application/json" -Body $cuerpo
+```
+
+Respuesta:
+
+```json
+{"risk_no_bikes": 0, "risk_no_docks": 0}
+```
+
+`risk_no_bikes = 1` significaría que la estación corre el riesgo de quedarse sin bicicletas en la siguiente hora, y `risk_no_docks = 1`, sin anclajes libres. Los datos del ejemplo vienen de `serving_input_example.json` del modelo (estación 2, con capacidad de 15 bicis).
+
+Si un dato no cumple el esquema de Pydantic, la API responde con el código 422 y dice qué campo falló. Por ejemplo, con `"capacity": 0`:
+
+```json
+{"detail":[{"type":"greater_than","loc":["body","capacity"],"msg":"Input should be greater than 0","input":0,"ctx":{"gt":0}}]}
+```
+
+La captura muestra el contenedor `healthy` en Docker y la API respondiendo `/health` y `/predict` con el ejemplo anterior:
+
+![API respondiendo desde el contenedor de Docker](reports/figures/docker/evidencia_api_contenedor.png)
 
 ## Flujo de trabajo con Git y GitHub
 
