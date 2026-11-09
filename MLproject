@@ -20,3 +20,9 @@ entry_points:
 
   p2-search:
     command: "python -m mibici_ml.project p2-search"
+
+  p3-search:
+    command: "python -m mibici_ml.project p3-search"
+
+  p3-register:
+    command: "python -m mibici_ml.project p3-register"

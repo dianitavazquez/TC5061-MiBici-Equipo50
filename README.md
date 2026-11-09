@@ -257,11 +257,92 @@ Para usar todos los valores por defecto basta, por ejemplo, con:
 mlflow run . -e train -P question=p2 -P model=candidato
 ```
 
-Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 se admiten `baseline`,
-`candidato-1`, `candidato-2` y `candidato-3`; `candidato` se conserva como alias del
-primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
+Los runs se agrupan en el experimento `mibici-equipo50`. Para P2 y P3 se admiten
+`baseline`, `candidato-1`, `candidato-2` y `candidato-3`; `candidato` se conserva como alias
+del primero. Parámetros desconocidos o preguntas distintas de `p1`, `p2` y `p3` terminan con
 un error explícito.
 
+## Despliegue con Docker
+
+La API con FastAPI y el modelo P2 se empaquetan en una imagen de Docker para que el servicio funcione igual en cualquier máquina. Yo lo probé con Docker Desktop 29 en Windows. El `Dockerfile` sigue el estándar OCI, así que también funciona con Podman cambiando `docker` por `podman` en los comandos.
+
+### Estrategia de despliegue
+
+Elegí inferencia en tiempo real: la API responde cada petición en el momento. P2 predice el riesgo de que una estación se quede sin bicicletas o sin anclajes en la siguiente hora, así que una predicción por lotes llegaría tarde para el equipo de rebalanceo. El modelo es una regresión logística de scikit-learn que predice en milisegundos, por lo que no hace falta una cola ni procesar por lotes.
+
+El modelo es `mibici-equipo50-p2-riesgo` con el alias `champion`. Se recupera del Model Registry y queda versionado en `models/serving/p2/`, como se explica en "Recuperación del modelo para el servicio". La imagen copia esa carpeta y fija `MIBICI_MODEL_SOURCE=bundled`, así que el contenedor no necesita un servidor de MLflow encendido. Además, en mi máquina el experimento guarda los artefactos con rutas locales de Windows (`file:E:/.../mlruns/1`), que un contenedor Linux no puede leer. Como el modelo ya está en el repo, la imagen se construye desde un clon limpio sin pasos previos. Para usar una versión nueva del registry basta con correr `make recover-model` y volver a construir la imagen.
+
+### 1. Construir la imagen
+
+```bash
+docker build -t mibici-api:1.0 .
+```
+
+La imagen parte de `python:3.12.10-slim`, instala `requirements.txt`, copia el paquete `mibici_ml` y el modelo de `models/serving/p2/`, y corre la API con un usuario sin privilegios. El `.dockerignore` deja fuera los datos, las bases de MLflow, `.env`, `.secrets/`, las pruebas y los notebooks, así que nada de eso llega a la imagen. La primera vez tarda unos 2 minutos y la imagen pesa alrededor de 1.8 GB.
+
+Si tu antivirus revisa las conexiones HTTPS (a mí me pasó con Norton), `pip` falla dentro del build con `CERTIFICATE_VERIFY_FAILED`, porque el contenedor no conoce el certificado del antivirus. En ese caso exporta el certificado raíz a `.secrets/`, que Git y Docker ignoran, y pásalo como secreto. Solo se usa durante la instalación y no queda guardado en la imagen. En PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .secrets | Out-Null
+$c = Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -like "*Norton Web/Mail Shield Root*" | Select-Object -First 1
+"-----BEGIN CERTIFICATE-----`n$([Convert]::ToBase64String($c.RawData, 'InsertLineBreaks'))`n-----END CERTIFICATE-----" | Out-File .secrets\norton_root.pem -Encoding ascii
+docker build --secret id=ca_extra,src=.secrets/norton_root.pem -t mibici-api:1.0 .
+```
+
+### 2. Levantar el contenedor
+
+```bash
+docker run -d --name mibici-api -p 8000:8000 mibici-api:1.0
+docker ps
+docker logs mibici-api
+```
+
+La API queda en <http://127.0.0.1:8000> y su documentación interactiva en <http://127.0.0.1:8000/docs>. La imagen tiene un healthcheck que consulta `GET /health` cada 30 segundos; cuando todo está bien, `docker ps` muestra el contenedor como `healthy`. Para detenerlo y borrarlo:
+
+```bash
+docker stop mibici-api
+docker rm mibici-api
+```
+
+### 3. Consumir la API
+
+La API tiene dos endpoints:
+
+1. `GET /health` revisa que el modelo esté cargado y responde `{"status": "ok", "model": "P2"}`.
+2. `POST /predict` recibe las 23 variables de una estación en una hora y devuelve los dos indicadores de riesgo para la hora siguiente.
+
+Ejemplo de petición con `curl` (Linux, macOS o Git Bash):
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"capacity":15,"departures_lag_1h":0,"arrivals_lag_1h":0,"net_departures_lag_1h":0,"departures_mean_3h":0.6667,"departures_mean_24h":2.875,"departures_mean_168h":2.2202,"arrivals_mean_3h":0.3333,"arrivals_mean_24h":2.8333,"arrivals_mean_168h":2.1548,"net_departures_mean_3h":0.3333,"net_departures_mean_24h":0.0417,"net_departures_mean_168h":0.0655,"risk_no_bikes_lag_1h":0,"risk_no_docks_lag_1h":0,"hour_sin":0,"hour_cos":1,"weekday_sin":0.9749,"weekday_cos":-0.2225,"month_sin":-1,"month_cos":0,"is_weekend":0,"station_id":2}'
+```
+
+La misma petición en PowerShell:
+
+```powershell
+$cuerpo = '{"capacity":15,"departures_lag_1h":0,"arrivals_lag_1h":0,"net_departures_lag_1h":0,"departures_mean_3h":0.6667,"departures_mean_24h":2.875,"departures_mean_168h":2.2202,"arrivals_mean_3h":0.3333,"arrivals_mean_24h":2.8333,"arrivals_mean_168h":2.1548,"net_departures_mean_3h":0.3333,"net_departures_mean_24h":0.0417,"net_departures_mean_168h":0.0655,"risk_no_bikes_lag_1h":0,"risk_no_docks_lag_1h":0,"hour_sin":0,"hour_cos":1,"weekday_sin":0.9749,"weekday_cos":-0.2225,"month_sin":-1,"month_cos":0,"is_weekend":0,"station_id":2}'
+Invoke-RestMethod http://127.0.0.1:8000/predict -Method Post -ContentType "application/json" -Body $cuerpo
+```
+
+Respuesta:
+
+```json
+{"risk_no_bikes": 0, "risk_no_docks": 0}
+```
+
+`risk_no_bikes = 1` significaría que la estación corre el riesgo de quedarse sin bicicletas en la siguiente hora, y `risk_no_docks = 1`, sin anclajes libres. Los datos del ejemplo vienen de `serving_input_example.json` del modelo (estación 2, con capacidad de 15 bicis).
+
+Si un dato no cumple el esquema de Pydantic, la API responde con el código 422 y dice qué campo falló. Por ejemplo, con `"capacity": 0`:
+
+```json
+{"detail":[{"type":"greater_than","loc":["body","capacity"],"msg":"Input should be greater than 0","input":0,"ctx":{"gt":0}}]}
+```
+
+La captura muestra el contenedor `healthy` en Docker y la API respondiendo `/health` y `/predict` con el ejemplo anterior:
+
+![API respondiendo desde el contenedor de Docker](reports/figures/docker/evidencia_api_contenedor.png)
 
 ## Flujo de trabajo con Git y GitHub
 
@@ -576,3 +657,45 @@ Con k=4 salen estos grupos:
 ![Mapa de los grupos](reports/figures/p3-candidato-kmeans-k4_mapa_grupos.png)
 
 ![Perfil de los grupos](reports/figures/p3-candidato-kmeans-k4_perfil_grupos.png)
+
+### Experimentos y Model Registry
+
+Con el servidor de MLflow encendido y las variables `MLFLOW_TRACKING_URI` y `MLFLOW_EXPERIMENT_NAME` definidas (ver el paso 1 de "Ejecución reproducible con MLflow Project"), corro todo desde el MLflow Project:
+
+```bash
+mlflow run . -e ingest
+mlflow run . -e features -P question=p3
+mlflow run . -e p3-search
+mlflow run . -e train -P question=p3 -P model=baseline
+mlflow run . -e train -P question=p3 -P model=candidato-1
+mlflow run . -e train -P question=p3 -P model=candidato-2
+mlflow run . -e train -P question=p3 -P model=candidato-3
+mlflow run . -e p3-register
+```
+
+En Windows no hay `pyenv`, así que agrego `--env-manager local` a cada comando para usar el entorno `.venv` ya instalado con `requirements.txt`. En PowerShell las variables se definen con `$env:MLFLOW_TRACKING_URI="http://127.0.0.1:5050"` y `$env:MLFLOW_EXPERIMENT_NAME="mibici-equipo50"`.
+
+1. `p3-search` crea el run padre `p3-busqueda-kmeans-k` con un run hijo por cada k de 3 a 8.
+2. `train` entrena el baseline y los tres candidatos de `CLUSTERING_CANDIDATES` en `config.py`: K-Means con las 9 variables de uso, K-Means sin `prop_mediodia` (las cuatro franjas suman 1) y Gaussian Mixture. Los hiperparámetros se pueden cambiar, por ejemplo con `-P 'hyperparameters={"k":5}'`.
+3. Todos se evalúan con las métricas de la entrega anterior en el mismo espacio de 9 variables. Además mido la estabilidad: entreno 20 veces con el 80 % de las estaciones y comparo los grupos contra los del modelo completo con el índice de Rand ajustado (ARI).
+4. Cada run tiene las etiquetas `question`, `model_family` y `stage_of_work`. Los candidatos guardan el modelo con firma y ejemplo de entrada, el manifiesto y los grupos en `data/`, el mapa y los perfiles en `plots/` y la configuración en `config/`.
+5. `p3-register` registra el modelo elegido y el segundo mejor en el Model Registry y comprueba que el modelo en producción se puede cargar por su nombre.
+
+| Run | Silhouette ↑ | Davies-Bouldin ↓ | Calinski-Harabasz ↑ | Estabilidad (ARI) ↑ |
+|---|---|---|---|---|
+| p3-baseline-kmeans-k4 | 0.067 | 2.773 | 39.7 | 0.789 |
+| **p3-candidato-1-kmeans-k4** | **0.167** | **1.686** | **83.6** | **0.928** |
+| p3-candidato-2-kmeans-k4 | 0.158 | 1.765 | 79.5 | 0.889 |
+| p3-candidato-3-gmm-k4 | 0.118 | 1.855 | 71.3 | 0.843 |
+
+Elegí el candidato 1 porque es el mejor en las tres métricas y el más estable, así que planeación puede confiar en que una estación no cambia de grupo por quitar unas cuantas estaciones. En la búsqueda, k = 4 también es el más estable (0.93 contra 0.59 a 0.64 con otros valores de k). El costo no pesa en la decisión, porque todos entrenan en menos de un segundo.
+
+Para el ciclo de vida uso aliases, que es el esquema actual de MLflow (las etapas como Production ya son obsoletas). El modelo `mibici-equipo50-p3-grupos` tiene el alias `champion` para la versión en producción (candidato 1) y `challenger` para la siguiente mejor (candidato 2). Cada versión guarda su linaje como etiquetas: experimento, run de origen, commit de Git y versión de datos. El modelo en producción se carga así:
+
+```python
+import mlflow
+
+modelo = mlflow.sklearn.load_model("models:/mibici-equipo50-p3-grupos@champion")
+```
+
+Si después el challenger resulta mejor, basta con volver a registrar con `python -m mibici_ml.modeling.p3_experiments registrar --campeon candidato-2 --retador candidato-1` para mover los aliases, sin cambiar el código que carga el modelo.
