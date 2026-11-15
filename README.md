@@ -86,6 +86,24 @@ python -m mibici_ml.modeling.train train-p2
 python -m mibici_ml.modeling.train train-p3
 ```
 
+### Observabilidad del champion P2
+
+La capa de observabilidad mantiene intacta la versión de datos del champion y trata octubre
+de 2026 como un lote posterior de producción. Descarga ese mes desde Drive, reconstruye las
+mismas variables estación-hora, genera un reporte de drift/calidad con Evidently y evalúa el
+modelo empaquetado cuando las etiquetas demoradas ya están disponibles:
+
+```bash
+make monitor-p2
+# Equivalente reproducible mediante MLflow Project:
+mlflow run . -e monitor-p2
+```
+
+El reporte interactivo queda en `reports/evidently/p2/drift_2026_10.html`, el resultado JSON
+completo en el mismo directorio y el resumen versionable en
+`references/observabilidad/p2_drift_2026_10.json`. La selección de periodos, el método y la
+interpretación están documentados en `docs/p2-observabilidad.md`.
+
 `.env`, variantes locales, llaves privadas y archivos comunes de credenciales están excluidos
 por `.gitignore`. No agregues tokens, contraseñas, datos personales ni credenciales reales al
 repositorio. `.env.example` debe contener solamente nombres de variables y valores públicos o

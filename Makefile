@@ -118,6 +118,11 @@ mlflow-ui: check-python
 recover-model:
 	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.model_recovery
 
+## Compare the P2 training reference with the October 2026 production batch
+.PHONY: monitor-p2
+monitor-p2:
+	$(PYTHON_INTERPRETER) -m mibici_ml.monitoring run
+
 
 #################################################################################
 # Self Documenting Commands                                                     #

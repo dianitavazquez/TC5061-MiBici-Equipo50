@@ -20,3 +20,6 @@ entry_points:
 
   p2-search:
     command: "python -m mibici_ml.project p2-search"
+
+  monitor-p2:
+    command: "python -m mibici_ml.monitoring run"
