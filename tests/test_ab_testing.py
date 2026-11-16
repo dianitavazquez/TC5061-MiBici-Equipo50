@@ -74,11 +74,18 @@ def recall(sin_bicis, sin_anclajes):
 
 
 @pytest.mark.parametrize(
-    "ci_low, recall_challenger, ganador",
-    [(0.01, 0.28, "challenger"), (-0.01, 0.30, "champion"), (0.01, 0.20, "champion")],
+    "intervalo, recall_challenger, ganador, veredicto",
+    [
+        ((0.01, 0.05), 0.28, "challenger", "es mejor"),
+        ((-0.01, 0.05), 0.30, "champion", "no es concluyente"),
+        ((-0.09, -0.01), 0.30, "champion", "es peor"),
+        ((0.01, 0.05), 0.20, "champion", "es mejor"),
+    ],
 )
-def test_decision_exige_mejora_clara_sin_perder_recall(ci_low, recall_challenger, ganador):
-    bootstrap = {"ci_low": ci_low, "ci_high": 0.05, "confidence": 0.95}
+def test_decision_exige_mejora_clara_sin_perder_recall(
+    intervalo, recall_challenger, ganador, veredicto
+):
+    bootstrap = {"ci_low": intervalo[0], "ci_high": intervalo[1], "confidence": 0.95}
 
     decision = ab_testing.decide(
         recall(0.30, 0.30), recall(recall_challenger, 0.30), bootstrap, max_recall_drop=0.05
@@ -86,6 +93,7 @@ def test_decision_exige_mejora_clara_sin_perder_recall(ci_low, recall_challenger
 
     assert decision["winner"] == ganador
     assert decision["promote_challenger"] is (ganador == "challenger")
+    assert veredicto in decision["reasons"][0]
 
 
 def test_ventana_de_evaluacion_filtra_fechas(tmp_path):
@@ -145,6 +153,7 @@ def test_ab_completo_escribe_tabla_figura_y_resumen(tmp_path):
         champion_uri=str(modelos["champion"]),
         challenger_uri=str(modelos["challenger"]),
         evaluation_path=ruta,
+        start="2026-10-16",
         samples=50,
         summary_dir=tmp_path / "resumen",
         figure_dir=tmp_path / "figuras",

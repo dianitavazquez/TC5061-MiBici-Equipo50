@@ -39,10 +39,11 @@ app = typer.Typer(no_args_is_help=True)
 FEATURES = [*NUMERIC_FEATURES, *CATEGORICAL_FEATURES]
 VARIANTS = ("champion", "challenger")
 
-# Octubre de 2026 es el periodo actual del monitoreo; el challenger solo puede entrenar con
-# fechas anteriores a AB_EVALUATION_START para que ningún modelo haya visto la evaluación.
+# Octubre de 2026 es el periodo actual del monitoreo. Ni el champion ni el challenger entrenaron
+# con octubre, así que se evalúa el mes completo; si un challenger futuro usa parte de octubre,
+# AB_EVALUATION_START debe moverse después de su último día de entrenamiento.
 AB_EVALUATION_FILE = INTERIM_DATA_DIR / "p2_current_2026_10.parquet"
-AB_EVALUATION_START = "2026-10-16"
+AB_EVALUATION_START = "2026-10-01"
 AB_EVALUATION_END = "2026-11-01"
 AB_CHAMPION_URI = str(MODELS_DIR / "serving" / "p2")
 AB_CHALLENGER_URI = str(MODELS_DIR / "serving" / "p2_challenger")
@@ -230,13 +231,13 @@ def decide(
     clear_gain = bootstrap["ci_low"] > 0
     recall_kept = all(drop <= max_recall_drop for drop in recall_drop.values())
     interval = f"[{bootstrap['ci_low']:+.4f}, {bootstrap['ci_high']:+.4f}]"
-    reasons = [
-        (
-            f"El IC {percent} de la mejora en macro-F1 {interval} queda arriba de 0."
-            if clear_gain
-            else f"El IC {percent} de la mejora en macro-F1 {interval} incluye valores <= 0."
-        )
-    ]
+    if clear_gain:
+        verdict = "queda arriba de 0: el challenger es mejor"
+    elif bootstrap["ci_high"] < 0:
+        verdict = "queda abajo de 0: el challenger es peor"
+    else:
+        verdict = "incluye el 0: la diferencia no es concluyente"
+    reasons = [f"El IC {percent} de la diferencia de macro-F1 {interval} {verdict}."]
     for target, drop in recall_drop.items():
         state = "dentro" if drop <= max_recall_drop else "fuera"
         reasons.append(

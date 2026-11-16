@@ -1,0 +1,12 @@
+metric,champion,challenger,difference
+macro_f1,0.180631,0.02939,-0.15124
+risk_no_bikes_f1,0.121854,0.023195,-0.09866
+risk_no_bikes_precision,0.094005,0.011747,-0.082258
+risk_no_bikes_recall,0.173149,0.908407,0.735257
+risk_no_bikes_average_precision,0.072578,0.042,-0.030578
+risk_no_bikes_roc_auc,0.924812,0.932562,0.00775
+risk_no_docks_f1,0.239407,0.035586,-0.203821
+risk_no_docks_precision,0.194716,0.018172,-0.176544
+risk_no_docks_recall,0.310724,0.854262,0.543538
+risk_no_docks_average_precision,0.165352,0.13699,-0.028362
+risk_no_docks_roc_auc,0.925623,0.92879,0.003167
