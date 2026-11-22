@@ -118,6 +118,11 @@ mlflow-ui: check-python
 recover-model:
 	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.model_recovery
 
+## Run the local Locust load test and collect container resource metrics
+.PHONY: load-test
+load-test:
+	./load_testing/run_load_test.sh
+
 
 #################################################################################
 # Self Documenting Commands                                                     #

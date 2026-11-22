@@ -344,6 +344,47 @@ La captura muestra el contenedor `healthy` en Docker y la API respondiendo `/hea
 
 ![API respondiendo desde el contenedor de Docker](reports/figures/docker/evidencia_api_contenedor.png)
 
+## Pruebas de carga con Locust y monitoreo
+
+El perfil `load-test` de Docker Compose ejecuta Locust contra `POST /predict` y usa cinco
+entradas válidas del ejemplo de serving del modelo. Cada usuario espera entre 0.2 y 1 segundo
+entre predicciones. Mientras corre la carga, `docker stats` toma muestras del consumo de CPU
+y memoria de la API y MLflow.
+
+La configuración predeterminada aumenta hasta 50 usuarios a razón de 5 usuarios por segundo
+y mantiene la prueba durante 2 minutos:
+
+```bash
+make load-test
+```
+
+Los parámetros se pueden cambiar sin modificar archivos:
+
+```bash
+USERS=100 SPAWN_RATE=10 RUN_TIME=5m make load-test
+```
+
+Cada corrida crea una carpeta fechada en `reports/load-tests/` con:
+
+- `README.md`: resumen, objetivos y veredicto;
+- `performance.png`: latencia p50/p95/p99, peticiones por segundo y tasa de error;
+- `resources.png`: CPU y memoria por contenedor;
+- `locust-report.html`: reporte interactivo de Locust;
+- CSV originales de Locust y de `docker stats`.
+
+Los objetivos iniciales son p95 menor o igual a 500 ms y tasa de error menor o igual a 1 %.
+Se pueden ajustar con `P95_THRESHOLD_MS` y `ERROR_RATE_THRESHOLD`. Estos resultados solo
+describen la máquina y la carga ejecutadas; antes de concluir que la API llegó a su límite,
+hay que verificar que Docker Desktop y el generador de Locust no estén saturados.
+
+Para conservar los contenedores después de la prueba y revisarlos manualmente:
+
+```bash
+KEEP_SERVICES=1 make load-test
+docker stats
+docker compose --profile load-test down
+```
+
 ## Flujo de trabajo con Git y GitHub
 
 Se utiliza **GitHub Flow** con estas reglas:

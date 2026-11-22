@@ -18,6 +18,22 @@ services:
     networks:
       - mibici-network
 
+  locust:
+    build:
+      context: ./load_testing
+      dockerfile: Dockerfile
+    image: mibici-equipo50-locust:latest
+    profiles:
+      - load-test
+    volumes:
+      - ./load_testing:/mnt/locust:ro
+      - ./reports/load-tests:/reports
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - mibici-network
+
   mlflow:
     image: ghcr.io/mlflow/mlflow:v3.17.1
     command:

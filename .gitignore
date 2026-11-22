@@ -232,3 +232,7 @@ mlflow.db
 
 # Ad-hoc generated P2 figure outside the tracked search directory
 /reports/figures/p2_confusion_matrices.png
+
+# Raw Locust exports are reproducible; keep summaries, plots, and resource metrics
+/reports/load-tests/*/locust-report.html
+/reports/load-tests/*/locust_*.csv
