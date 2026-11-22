@@ -1,0 +1,118 @@
+{
+  "question": "P2",
+  "registered_model": "mibici-equipo50-p2-riesgo",
+  "output_name": "p2_ab_2026_10",
+  "git_commit": "aaf6aec639b48dfd28fe00b7324d86145faa5f8b",
+  "champion": {
+    "uri": "models/serving/p2",
+    "registered_model": "mibici-equipo50-p2-riesgo",
+    "version": 2,
+    "run_id": "8981c76434b6469eb96bdfc45d261376"
+  },
+  "challenger": {
+    "uri": "models/serving/p2_challenger",
+    "registered_model": "mibici-equipo50-p2-riesgo",
+    "version": 3,
+    "run_id": "1ba0c15d012e4d1f87fd20bcca707355"
+  },
+  "evaluation": {
+    "file": "p2_current_2026_10.parquet",
+    "start": "2026-10-01",
+    "end_exclusive": "2026-11-01",
+    "first_hour": "2026-10-01T00:00:00",
+    "last_hour": "2026-10-31T23:00:00",
+    "rows": 348360,
+    "stations": 469,
+    "positives": {
+      "risk_no_bikes": 797,
+      "risk_no_docks": 1091
+    },
+    "positive_rate": {
+      "risk_no_bikes": 0.0022878631300953037,
+      "risk_no_docks": 0.0031318176598920658
+    }
+  },
+  "metrics": {
+    "champion": {
+      "macro_f1": 0.18063054214838928,
+      "risk_no_bikes_f1": 0.12185430463576159,
+      "risk_no_bikes_precision": 0.09400544959128065,
+      "risk_no_bikes_recall": 0.17314930991217065,
+      "risk_no_bikes_average_precision": 0.07257843932048505,
+      "risk_no_bikes_roc_auc": 0.9248119703064872,
+      "risk_no_docks_f1": 0.23940677966101695,
+      "risk_no_docks_precision": 0.19471568064330844,
+      "risk_no_docks_recall": 0.31072410632447295,
+      "risk_no_docks_average_precision": 0.1653519398067523,
+      "risk_no_docks_roc_auc": 0.9256227112907365
+    },
+    "challenger": {
+      "macro_f1": 0.02939041094164456,
+      "risk_no_bikes_f1": 0.023194720317806113,
+      "risk_no_bikes_precision": 0.011747334945076342,
+      "risk_no_bikes_recall": 0.9084065244667503,
+      "risk_no_bikes_average_precision": 0.042000123627806536,
+      "risk_no_bikes_roc_auc": 0.9325624368629939,
+      "risk_no_docks_f1": 0.03558610156548301,
+      "risk_no_docks_precision": 0.018171537756633976,
+      "risk_no_docks_recall": 0.854262144821265,
+      "risk_no_docks_average_precision": 0.13698979895799202,
+      "risk_no_docks_roc_auc": 0.9287896035837621
+    },
+    "difference": {
+      "macro_f1": -0.15124013120674473,
+      "risk_no_bikes_f1": -0.09865958431795548,
+      "risk_no_bikes_precision": -0.0822581146462043,
+      "risk_no_bikes_recall": 0.7352572145545797,
+      "risk_no_bikes_average_precision": -0.030578315692678514,
+      "risk_no_bikes_roc_auc": 0.0077504665565066855,
+      "risk_no_docks_f1": -0.20382067809553395,
+      "risk_no_docks_precision": -0.17654414288667447,
+      "risk_no_docks_recall": 0.543538038496792,
+      "risk_no_docks_average_precision": -0.028362140848760292,
+      "risk_no_docks_roc_auc": 0.0031668922930255805
+    }
+  },
+  "bootstrap": {
+    "unit": "station_id",
+    "stations": 469,
+    "samples": 1000,
+    "seed": 42,
+    "confidence": 0.95,
+    "observed_difference": -0.15124013120674473,
+    "mean_difference": -0.14338040567087118,
+    "ci_low": -0.19089283152306447,
+    "ci_high": -0.07520616638279855,
+    "probability_challenger_better": 0.001
+  },
+  "mcnemar": {
+    "risk_no_bikes": {
+      "only_champion_correct": 59577,
+      "only_challenger_correct": 586,
+      "p_value": 0.0
+    },
+    "risk_no_docks": {
+      "only_champion_correct": 48955,
+      "only_challenger_correct": 593,
+      "p_value": 0.0
+    }
+  },
+  "decision_threshold": {
+    "max_recall_drop": 0.05
+  },
+  "decision": {
+    "winner": "champion",
+    "promote_challenger": false,
+    "rule": "Promover el challenger solo si el límite inferior del IC 95% de la diferencia de macro-F1 es mayor que 0 y ningún recall baja más de 0.05.",
+    "recall_drop": {
+      "risk_no_bikes": -0.7352572145545797,
+      "risk_no_docks": -0.543538038496792
+    },
+    "reasons": [
+      "El IC 95% de la diferencia de macro-F1 [-0.1909, -0.0752] queda abajo de 0: el challenger es peor.",
+      "Cambio de recall en risk_no_bikes: +0.7353, dentro del límite de -0.05.",
+      "Cambio de recall en risk_no_docks: +0.5435, dentro del límite de -0.05."
+    ]
+  },
+  "mlflow_run_id": "71638b2099d34e20a97a648cd2972cb3"
+}
