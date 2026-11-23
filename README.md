@@ -415,7 +415,7 @@ El workflow se ejecuta automáticamente mediante `push` y `pull_request`, o manu
 
 El pipeline fue ejecutado exitosamente en GitHub Actions.
 
-**Alcance:** actualmente implementa integración continua (CI). No publica imágenes ni realiza despliegues automáticos (CD).
+**Alcance:** el pipeline implementa integración continua (CI) y despliegue automatizado temporal para pruebas de integración mediante Docker Compose. Construye la imagen, ejecuta las pruebas, inicia los servicios y valida su funcionamiento antes de detenerlos. No realiza despliegues persistentes en producción ni publica imágenes en un registro externo.
 
 ---
 
