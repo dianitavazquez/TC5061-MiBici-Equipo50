@@ -1,0 +1,10 @@
+scenario,demand_rps,replicas,usd_month,usd_month_free_tier,predictions_month,usd_per_million
+Compose actual: API + MLflow en t3.medium,0.130278,1,30.368,,342370,88.6994
+Solo la API en t3.micro,0.130278,1,7.592,,342370,22.1748
+Solo la API en t3.small Spot,0.130278,1,5.84,,342370,17.0576
+Cloud Run por petición,0.130278,,0.995825,0,342370,2.90862
+Cloud Run por lotes cada hora,0.130278,,0.0555895,0,342370,0.162367
+Prueba de 50 usuarios en t3.small,78.44,1,16.3447,,2.0614e+08,0.0792892
+Prueba de 50 usuarios en Cloud Run,78.44,,148.787,,2.0614e+08,0.721776
+Réplica al 70 % en t3.small,87.395,1,25.5055,,2.29674e+08,0.111051
+Réplica al 70 % en c7i.large,87.395,1,65.1525,,2.29674e+08,0.283674
