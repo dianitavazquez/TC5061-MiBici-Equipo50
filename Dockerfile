@@ -16,9 +16,9 @@ WORKDIR /app
 # La línea "-e ." se quita porque el código se usa directo desde /app (PYTHONPATH).
 # Si un antivirus inspecciona HTTPS (por ejemplo Norton), su certificado raíz se pasa como
 # secreto opcional con --secret id=ca_extra,src=<archivo.pem>; no queda guardado en la imagen.
-COPY requirements.txt .
+COPY requirements-api.txt .
 RUN --mount=type=secret,id=ca_extra,required=false \
-    grep -v "^-e" requirements.txt > /tmp/dependencias.txt \
+    cp requirements-api.txt /tmp/dependencias.txt \
     && if [ -f /run/secrets/ca_extra ]; then \
         cat /etc/ssl/certs/ca-certificates.crt /run/secrets/ca_extra > /tmp/ca.pem \
         && export PIP_CERT=/tmp/ca.pem; \
