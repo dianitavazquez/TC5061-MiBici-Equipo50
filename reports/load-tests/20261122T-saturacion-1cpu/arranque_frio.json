@@ -1,0 +1,32 @@
+[
+ {
+  "corrida": 1,
+  "docker_run_s": 0.438,
+  "hasta_health_s": 4.732,
+  "primera_prediccion_ms": 12.0
+ },
+ {
+  "corrida": 2,
+  "docker_run_s": 0.251,
+  "hasta_health_s": 3.099,
+  "primera_prediccion_ms": 12.4
+ },
+ {
+  "corrida": 3,
+  "docker_run_s": 0.247,
+  "hasta_health_s": 2.814,
+  "primera_prediccion_ms": 12.6
+ },
+ {
+  "corrida": 4,
+  "docker_run_s": 0.27,
+  "hasta_health_s": 2.905,
+  "primera_prediccion_ms": 14.1
+ },
+ {
+  "corrida": 5,
+  "docker_run_s": 0.248,
+  "hasta_health_s": 2.864,
+  "primera_prediccion_ms": 13.3
+ }
+]
