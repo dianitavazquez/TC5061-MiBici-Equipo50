@@ -278,7 +278,7 @@ El modelo es `mibici-equipo50-p2-riesgo` con el alias `champion`. Se recupera de
 docker build -t mibici-api:1.0 .
 ```
 
-La imagen parte de `python:3.12.10-slim`, instala `requirements.txt`, copia el paquete `mibici_ml` y el modelo de `models/serving/p2/`, y corre la API con un usuario sin privilegios. El `.dockerignore` deja fuera los datos, las bases de MLflow, `.env`, `.secrets/`, las pruebas y los notebooks, así que nada de eso llega a la imagen. La primera vez tarda unos 2 minutos y la imagen pesa alrededor de 1.8 GB.
+La imagen parte de `python:3.12.10-slim`, instala `requirements-api.txt`, copia el paquete `mibici_ml` y el modelo de `models/serving/p2/`, y corre la API con un usuario sin privilegios. El `.dockerignore` deja fuera los datos, las bases de MLflow, `.env`, `.secrets/`, las pruebas y los notebooks, así que nada de eso llega a la imagen. La primera vez tarda unos 2 minutos y la imagen pesa alrededor de 1.8 GB.
 
 Si tu antivirus revisa las conexiones HTTPS (a mí me pasó con Norton), `pip` falla dentro del build con `CERTIFICATE_VERIFY_FAILED`, porque el contenedor no conoce el certificado del antivirus. En ese caso exporta el certificado raíz a `.secrets/`, que Git y Docker ignoran, y pásalo como secreto. Solo se usa durante la instalación y no queda guardado en la imagen. En PowerShell:
 
@@ -343,6 +343,81 @@ Si un dato no cumple el esquema de Pydantic, la API responde con el código 422 
 La captura muestra el contenedor `healthy` en Docker y la API respondiendo `/health` y `/predict` con el ejemplo anterior:
 
 ![API respondiendo desde el contenedor de Docker](reports/figures/docker/evidencia_api_contenedor.png)
+
+
+### 4. Orquestación con Docker Compose
+
+Docker Compose permite ejecutar FastAPI y MLflow en una misma red, con verificaciones de salud y almacenamiento persistente.
+
+#### Servicios
+
+| Servicio | Puerto | Función |
+| --- | --- | --- |
+| FastAPI | 8000 | Inferencia del modelo P2 |
+| MLflow | 5050 | Tracking de experimentos |
+
+La API utiliza el modelo incluido en `models/serving/p2/`. Por lo tanto, no necesita conectarse a MLflow para cargar el modelo durante la inferencia.
+
+#### Construcción y ejecución
+
+Desde la raíz del repositorio:
+
+```bash
+docker compose config --quiet
+docker compose up --build -d --wait
+docker compose ps
+```
+
+Interfaces disponibles:
+
+- FastAPI Swagger: http://localhost:8000/docs
+- MLflow: http://localhost:5050
+
+#### Validación de los servicios
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:5050/health
+```
+
+FastAPI debe responder:
+
+```json
+{"status":"ok","model":"P2"}
+```
+
+Para consultar los logs y detener los servicios:
+
+```bash
+docker compose logs --tail=100
+docker compose down
+```
+
+El volumen `mlflow-data` conserva los datos de MLflow después de detener los contenedores.
+
+#### Dependencias
+
+La imagen Docker utiliza `requirements-api.txt` para instalar las dependencias necesarias para ejecutar FastAPI y el modelo P2.
+
+### 5. Integración continua con GitHub Actions
+
+El workflow `.github/workflows/ci.yml` automatiza las siguientes validaciones:
+
+1. Validación de Docker Compose.
+2. Construcción de la imagen Docker.
+3. Ejecución de las ocho pruebas de `tests/test_api.py`.
+4. Inicio de FastAPI y MLflow.
+5. Verificación de ambos endpoints de salud.
+6. Inferencia real del modelo P2 mediante `/predict`.
+7. Recolección de logs en caso de error y limpieza de contenedores.
+
+El workflow se ejecuta automáticamente mediante `push` y `pull_request`, o manualmente mediante `workflow_dispatch`.
+
+El pipeline fue ejecutado exitosamente en GitHub Actions.
+
+**Alcance:** el pipeline implementa integración continua (CI) y despliegue automatizado temporal para pruebas de integración mediante Docker Compose. Construye la imagen, ejecuta las pruebas, inicia los servicios y valida su funcionamiento antes de detenerlos. No realiza despliegues persistentes en producción ni publica imágenes en un registro externo.
+
+---
 
 ## Flujo de trabajo con Git y GitHub
 

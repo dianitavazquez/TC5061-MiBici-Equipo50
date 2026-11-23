@@ -1,0 +1,75 @@
+name: MiBici CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docker-integration:
+    name: Docker Compose Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Build Docker image
+        run: docker compose build api
+
+      - name: Run API unit tests
+        run: |
+          docker run --rm \
+            --user root \
+            -v "$PWD/tests:/app/tests:ro" \
+            --entrypoint sh \
+            mibici-equipo50-api:latest \
+            -c "pip install pytest httpx && python -m pytest tests/test_api.py -v"
+
+      - name: Start services
+        run: docker compose up -d --wait --wait-timeout 300
+
+      - name: Check API health
+        run: curl --fail --show-error http://localhost:8000/health
+
+      - name: Check MLflow health
+        run: curl --fail --show-error http://localhost:5050/health
+
+      - name: Test real P2 inference
+        run: |
+          python3 - <<'PY'
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          path = Path("models/serving/p2/serving_input_example.json")
+          example = json.loads(path.read_text())["dataframe_split"]
+          payload = dict(zip(example["columns"], example["data"][0]))
+
+          request = urllib.request.Request(
+              "http://localhost:8000/predict",
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          with urllib.request.urlopen(request, timeout=60) as response:
+              assert response.status == 200
+              prediction = json.load(response)
+
+          assert prediction["risk_no_bikes"] in (0, 1)
+          assert prediction["risk_no_docks"] in (0, 1)
+          print("P2 inference successful:", prediction)
+          PY
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
