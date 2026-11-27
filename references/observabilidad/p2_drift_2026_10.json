@@ -1,0 +1,317 @@
+{
+  "generated_at_utc": "2026-11-15T17:22:59.724644+00:00",
+  "evidently_version": "0.7.23",
+  "method": "PSI",
+  "threshold": 0.2,
+  "reference": {
+    "description": "Partición cronológica usada para ajustar el champion P2",
+    "configured_source_period": {
+      "start_inclusive": "2025-10-01",
+      "end_exclusive": "2026-10-01"
+    },
+    "actual_training_cutoff_exclusive": "2026-07-20T00:00:00",
+    "quality": {
+      "rows": 2637387,
+      "columns": 31,
+      "stations": 436,
+      "start": "2025-10-01T00:00:00",
+      "end": "2026-07-19T23:00:00",
+      "missing_values": 0,
+      "duplicate_station_hours": 0,
+      "constant_columns": [],
+      "target_positive_rate": {
+        "risk_no_bikes": 0.0015898311472681103,
+        "risk_no_docks": 0.0022234127945576438
+      }
+    },
+    "sample_rows_in_evidently": 100000
+  },
+  "current": {
+    "description": "Comportamiento posterior observado en octubre de 2026",
+    "period": {
+      "start_inclusive": "2026-10-01",
+      "end_exclusive": "2026-11-01"
+    },
+    "source": {
+      "file_id": "1c431q1A99kYRG_OAi_nbGNea0KMXV5r2",
+      "name": "datos_abiertos_2026_10.csv",
+      "url": "https://drive.google.com/file/d/1c431q1A99kYRG_OAi_nbGNea0KMXV5r2/view",
+      "bytes": 55222199,
+      "sha256": "0cdfb05299e6db658ac9cc7723494a9704b0749e3671c29c8566826ea889b900"
+    },
+    "quality": {
+      "rows": 348360,
+      "columns": 31,
+      "stations": 469,
+      "start": "2026-10-01T00:00:00",
+      "end": "2026-10-31T23:00:00",
+      "missing_values": 0,
+      "duplicate_station_hours": 0,
+      "constant_columns": [
+        "month_sin",
+        "month_cos"
+      ],
+      "target_positive_rate": {
+        "risk_no_bikes": 0.0022878631300953037,
+        "risk_no_docks": 0.0031318176598920658
+      }
+    },
+    "sample_rows_in_evidently": 100000
+  },
+  "preparation": {
+    "cutoff": "2026-07-20T00:00:00",
+    "cache_used": true
+  },
+  "station_coverage": {
+    "reference_stations": 436,
+    "current_stations": 469,
+    "shared_stations": 435,
+    "unseen_in_training": [
+      104,
+      180,
+      427,
+      429,
+      432,
+      434,
+      440,
+      441,
+      443,
+      444,
+      445,
+      446,
+      473,
+      484,
+      488,
+      490,
+      491,
+      492,
+      504,
+      505,
+      506,
+      507,
+      508,
+      509,
+      510,
+      511,
+      512,
+      513,
+      514,
+      515,
+      516,
+      517,
+      518,
+      519
+    ],
+    "unseen_station_rows": 24743,
+    "unseen_station_row_share": 0.07102709840394994,
+    "absent_from_current": [
+      175
+    ]
+  },
+  "champion_performance_current": {
+    "registered_model": "mibici-equipo50-p2-riesgo",
+    "version": 2,
+    "run_id": "8981c76434b6469eb96bdfc45d261376",
+    "metrics": {
+      "risk_no_bikes_f1": 0.12185430463576159,
+      "risk_no_bikes_precision": 0.09400544959128065,
+      "risk_no_bikes_recall": 0.17314930991217065,
+      "risk_no_bikes_average_precision": 0.07257843932048505,
+      "risk_no_bikes_roc_auc": 0.9248119703064872,
+      "risk_no_bikes_positive_rate": 0.0022878631300953037,
+      "risk_no_docks_f1": 0.23940677966101695,
+      "risk_no_docks_precision": 0.19471568064330844,
+      "risk_no_docks_recall": 0.31072410632447295,
+      "risk_no_docks_average_precision": 0.1653519398067523,
+      "risk_no_docks_roc_auc": 0.9256227112907365,
+      "risk_no_docks_positive_rate": 0.0031318176598920658,
+      "macro_f1": 0.18063054214838928
+    }
+  },
+  "dataset_drift": {
+    "count": 3.0,
+    "share": 0.12,
+    "status": "SUCCESS"
+  },
+  "column_drift": [
+    {
+      "column": "month_sin",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 8.346237994409941,
+      "drift_detected": true
+    },
+    {
+      "column": "month_cos",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 8.206944917790512,
+      "drift_detected": true
+    },
+    {
+      "column": "station_id",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 1.524488508937825,
+      "drift_detected": true
+    },
+    {
+      "column": "departures_mean_168h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.140351458599266,
+      "drift_detected": false
+    },
+    {
+      "column": "arrivals_mean_168h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.12924975419176685,
+      "drift_detected": false
+    },
+    {
+      "column": "departures_mean_24h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.10985491585956958,
+      "drift_detected": false
+    },
+    {
+      "column": "arrivals_mean_24h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.10679709186542002,
+      "drift_detected": false
+    },
+    {
+      "column": "net_departures_mean_168h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.09543636609206815,
+      "drift_detected": false
+    },
+    {
+      "column": "net_departures_mean_24h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.03619557231885042,
+      "drift_detected": false
+    },
+    {
+      "column": "arrivals_mean_3h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.03212665813884986,
+      "drift_detected": false
+    },
+    {
+      "column": "departures_mean_3h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.03198027901319853,
+      "drift_detected": false
+    },
+    {
+      "column": "capacity",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.02650445020570965,
+      "drift_detected": false
+    },
+    {
+      "column": "departures_lag_1h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.025048519784421706,
+      "drift_detected": false
+    },
+    {
+      "column": "arrivals_lag_1h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.02227795018535838,
+      "drift_detected": false
+    },
+    {
+      "column": "weekday_sin",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.011461699556125216,
+      "drift_detected": false
+    },
+    {
+      "column": "weekday_cos",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.011461699556125216,
+      "drift_detected": false
+    },
+    {
+      "column": "net_departures_mean_3h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.0024214123431921014,
+      "drift_detected": false
+    },
+    {
+      "column": "net_departures_lag_1h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.001966801780725671,
+      "drift_detected": false
+    },
+    {
+      "column": "risk_no_docks_lag_1h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.00045868291162185523,
+      "drift_detected": false
+    },
+    {
+      "column": "risk_no_bikes_lag_1h",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.00024256186609869095,
+      "drift_detected": false
+    },
+    {
+      "column": "is_weekend",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.00018066246749693396,
+      "drift_detected": false
+    },
+    {
+      "column": "risk_no_docks",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.0001800060905582788,
+      "drift_detected": false
+    },
+    {
+      "column": "hour_sin",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.00017337252422325295,
+      "drift_detected": false
+    },
+    {
+      "column": "risk_no_bikes",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.0001560673781848706,
+      "drift_detected": false
+    },
+    {
+      "column": "hour_cos",
+      "method": "psi",
+      "threshold": 0.2,
+      "drift_score": 0.00014124556290334014,
+      "drift_detected": false
+    }
+  ],
+  "artifacts": {
+    "html": "reports/evidently/p2/drift_2026_10.html",
+    "json": "reports/evidently/p2/drift_2026_10.json"
+  }
+}

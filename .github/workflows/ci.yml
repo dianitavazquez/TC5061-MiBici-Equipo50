@@ -1,13 +1,54 @@
-name: MiBici CI
+name: MiBici CI/CD
 
 on:
   push:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: mibici-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  quality:
+    name: Tests, quality and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install pip==24.2 setuptools==75.1.0 wheel==0.44.0
+          python -m pip install -r requirements.txt
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+      - name: Check formatting and imports
+        run: |
+          black --check mibici_ml tests
+          isort --check --diff mibici_ml tests
+
+      - name: Lint
+        run: flake8 mibici_ml tests
+
+      - name: Security analysis
+        run: bandit -r mibici_ml -ll
+
   docker-integration:
-    name: Docker Compose Integration Tests
+    name: Compose, Registry, API and Locust
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -18,26 +59,29 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
-      - name: Build Docker image
-        run: docker compose build api
+      - name: Build service images
+        run: docker compose --profile load-test build api locust
 
-      - name: Run API unit tests
+      - name: Run API unit tests in the image
         run: |
           docker run --rm \
             --user root \
             -v "$PWD/tests:/app/tests:ro" \
             --entrypoint sh \
             mibici-equipo50-api:latest \
-            -c "pip install pytest httpx && python -m pytest tests/test_api.py -v"
+            -c "pip install pytest==7.4.4 httpx==0.27.2 && python -m pytest tests/test_api.py -q"
 
-      - name: Start services
+      - name: Start services and seed Registry
         run: docker compose up -d --wait --wait-timeout 300
 
-      - name: Check API health
-        run: curl --fail --show-error http://localhost:8000/health
-
-      - name: Check MLflow health
-        run: curl --fail --show-error http://localhost:5050/health
+      - name: Check health and model lineage
+        run: |
+          curl --fail --show-error http://localhost:8000/health
+          curl --fail --show-error http://localhost:8000/model-info
+          curl --fail --show-error http://localhost:5050/health
+          curl --fail --show-error --get \
+            --data-urlencode "name=mibici-equipo50-p2-riesgo" \
+            http://localhost:5050/api/2.0/mlflow/registered-models/get
 
       - name: Test real P2 inference
         run: |
@@ -49,27 +93,74 @@ jobs:
           path = Path("models/serving/p2/serving_input_example.json")
           example = json.loads(path.read_text())["dataframe_split"]
           payload = dict(zip(example["columns"], example["data"][0]))
-
           request = urllib.request.Request(
               "http://localhost:8000/predict",
               data=json.dumps(payload).encode(),
               headers={"Content-Type": "application/json"},
               method="POST",
           )
-
           with urllib.request.urlopen(request, timeout=60) as response:
               assert response.status == 200
               prediction = json.load(response)
-
           assert prediction["risk_no_bikes"] in (0, 1)
           assert prediction["risk_no_docks"] in (0, 1)
           print("P2 inference successful:", prediction)
           PY
 
+      - name: Run Locust smoke test
+        run: |
+          docker compose --profile load-test run --rm --no-deps locust \
+            -f /mnt/locust/locustfile.py \
+            --host http://api:8000 \
+            --headless \
+            --users 2 \
+            --spawn-rate 2 \
+            --run-time 10s \
+            --only-summary
+
       - name: Show container logs on failure
         if: failure()
-        run: docker compose logs --tail=100
+        run: docker compose logs --tail=150
 
       - name: Stop services
         if: always()
-        run: docker compose down
+        run: docker compose --profile load-test down -v
+
+  publish-image:
+    name: Publish immutable API image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - quality
+      - docker-integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+
+      - name: Build and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

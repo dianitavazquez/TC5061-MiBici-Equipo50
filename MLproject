@@ -26,3 +26,9 @@ entry_points:
 
   p3-register:
     command: "python -m mibici_ml.project p3-register"
+
+  monitor-p2:
+    command: "python -m mibici_ml.monitoring run"
+
+  bootstrap-registry:
+    command: "python -m mibici_ml.modeling.registry_bootstrap"

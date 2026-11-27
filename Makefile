@@ -118,6 +118,21 @@ mlflow-ui: check-python
 recover-model:
 	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.model_recovery
 
+## Seed a fresh MLflow Registry with the bundled champion and challenger
+.PHONY: bootstrap-registry
+bootstrap-registry:
+	$(PYTHON_INTERPRETER) -m mibici_ml.modeling.registry_bootstrap seed
+
+## Compare the P2 training reference with the October 2026 production batch
+.PHONY: monitor-p2
+monitor-p2:
+	$(PYTHON_INTERPRETER) -m mibici_ml.monitoring run
+
+## Run the reproducible Locust scenario and generate an auditable report
+.PHONY: load-test
+load-test:
+	bash load_testing/run_load_test.sh
+
 
 #################################################################################
 # Self Documenting Commands                                                     #

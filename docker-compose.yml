@@ -12,8 +12,8 @@ services:
       MIBICI_MODEL_PATH: /app/models/serving/p2
       MLFLOW_TRACKING_URI: http://mlflow:5050
     depends_on:
-      mlflow:
-        condition: service_healthy
+      registry-bootstrap:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - mibici-network
@@ -25,10 +25,15 @@ services:
       - server
       - --backend-store-uri
       - sqlite:////mlflow/mlflow.db
-      - --default-artifact-root
+      - --serve-artifacts
+      - --artifacts-destination
       - /mlflow/artifacts
+      - --default-artifact-root
+      - mlflow-artifacts:/
       - --host
       - 0.0.0.0
+      - --allowed-hosts
+      - mlflow:5050,localhost:5050,127.0.0.1:5050
       - --port
       - "5050"
     ports:
@@ -46,6 +51,42 @@ services:
       retries: 10
       start_period: 60s
     restart: unless-stopped
+    networks:
+      - mibici-network
+
+  registry-bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mibici-equipo50-api:latest
+    command:
+      - python
+      - -m
+      - mibici_ml.modeling.registry_bootstrap
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5050
+      MLFLOW_EXPERIMENT_NAME: mibici-equipo50-demo
+      GIT_PYTHON_REFRESH: quiet
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - mibici-network
+
+  locust:
+    profiles:
+      - load-test
+    build:
+      context: ./load_testing
+      dockerfile: Dockerfile
+    image: mibici-equipo50-locust:latest
+    volumes:
+      - ./load_testing:/mnt/locust:ro
+      - ./reports/load-tests:/reports
+    depends_on:
+      api:
+        condition: service_healthy
     networks:
       - mibici-network
 

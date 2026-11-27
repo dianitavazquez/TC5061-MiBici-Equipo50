@@ -1,4 +1,3 @@
-
 """Esquemas de entrada y salida para la API del modelo MiBici P2."""
 
 from pydantic import BaseModel, ConfigDict, Field

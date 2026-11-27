@@ -35,7 +35,9 @@ P3_HOUR_TO_RANGE = {
 }
 
 
-def load_clean_trips(raw_dir: Path) -> tuple[pd.DataFrame, dict[str, int]]:
+def load_clean_trips(
+    raw_dir: Path, file_names: list[str] | tuple[str, ...] | None = None
+) -> tuple[pd.DataFrame, dict[str, int]]:
     """Load valid trip events used to estimate P2 station demand pressure.
 
     Personal attributes are excluded because the operational question only depends on
@@ -43,7 +45,8 @@ def load_clean_trips(raw_dir: Path) -> tuple[pd.DataFrame, dict[str, int]]:
     removed before constructing hourly labels.
     """
     frames = []
-    for name in CLUSTERING_TRIP_FILES:
+    selected_files = CLUSTERING_TRIP_FILES if file_names is None else file_names
+    for name in selected_files:
         path = raw_dir / name
         if not path.exists():
             raise FileNotFoundError(f"No existe el archivo seleccionado {path}")
