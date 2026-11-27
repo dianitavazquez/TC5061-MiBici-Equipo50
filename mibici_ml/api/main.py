@@ -1,11 +1,13 @@
-
 """API REST para predicciones del modelo MiBici P2."""
 
-import logging
 from functools import lru_cache
+import json
+import logging
+import os
+from pathlib import Path
 
-import pandas as pd
 from fastapi import FastAPI, HTTPException
+import pandas as pd
 
 from mibici_ml.api.schemas import PredictionInput, PredictionOutput
 from mibici_ml.modeling.model_recovery import load_p2_model
@@ -40,6 +42,23 @@ def health():
     return {"status": "ok", "model": "P2"}
 
 
+@app.get("/model-info")
+def model_info():
+    """Expone la versión y el linaje mínimo del modelo activo para operación y demo."""
+    model_path = Path(os.getenv("MIBICI_MODEL_PATH", "models/serving/p2"))
+    manifest_path = model_path / "model-info.json"
+    if not manifest_path.is_file():
+        raise HTTPException(status_code=503, detail="Metadatos del modelo no disponibles")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {
+        "registered_model": manifest["registered_model"],
+        "version": manifest["version"],
+        "alias": manifest.get("alias_at_download"),
+        "source_run_id": manifest["run_id"],
+        "model_uri": manifest["model_uri"],
+    }
+
+
 @app.post("/predict", response_model=PredictionOutput)
 def predict(payload: PredictionInput):
     """Genera las dos predicciones binarias del modelo P2."""
@@ -60,11 +79,13 @@ def predict(payload: PredictionInput):
         )
 
         # Ajustar los tipos de datos según la firma de MLflow.
-        features = features.astype({
-            "capacity": "int64",
-            "station_id": "int64",
-            "is_weekend": "int32",
-        })
+        features = features.astype(
+            {
+                "capacity": "int64",
+                "station_id": "int64",
+                "is_weekend": "int32",
+            }
+        )
 
         # Ejecutar la predicción.
         predictions = model.predict(features)

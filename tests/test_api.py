@@ -1,21 +1,17 @@
-
 """Pruebas de la API REST para el modelo MiBici P2."""
 
 import json
 from pathlib import Path
 from unittest.mock import Mock
 
-import pytest
 from fastapi.testclient import TestClient
+import pytest
 
 from mibici_ml.api.main import app, get_model
 
 client = TestClient(app)
 
-EXAMPLE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "models/serving/p2/input_example.json"
-)
+EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "models/serving/p2/input_example.json"
 
 with EXAMPLE_PATH.open(encoding="utf-8") as file:
     example = json.load(file)
@@ -47,6 +43,17 @@ def test_health_returns_200():
         "status": "ok",
         "model": "P2",
     }
+
+
+def test_model_info_exposes_versioned_lineage():
+    response = client.get("/model-info")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["registered_model"] == "mibici-equipo50-p2-riesgo"
+    assert body["version"] == 2
+    assert body["alias"] == "champion"
+    assert body["source_run_id"] == "8981c76434b6469eb96bdfc45d261376"
 
 
 def test_predict_valid_input(mock_model):
@@ -117,9 +124,7 @@ def test_predict_model_unavailable(monkeypatch):
 
 def test_predict_inference_error(mock_model):
     """Devuelve 500 cuando falla la inferencia."""
-    mock_model.predict.side_effect = RuntimeError(
-        "Error de inferencia"
-    )
+    mock_model.predict.side_effect = RuntimeError("Error de inferencia")
 
     response = client.post("/predict", json=VALID_INPUT)
 

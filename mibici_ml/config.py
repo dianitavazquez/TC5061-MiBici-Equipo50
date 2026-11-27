@@ -67,6 +67,20 @@ P2_SEARCH_MODELS = {
     "candidato-3": {"class_weight": {0: 1.0, 1: 5.0}, "c": 1.0},
 }
 
+# Observabilidad P2: el champion conserva su referencia original y octubre se trata
+# como un lote de producción posterior, no como parte de la versión de entrenamiento.
+P2_MONITORING_CURRENT_FILE = "datos_abiertos_2026_10.csv"
+P2_MONITORING_REFERENCE_START = P2_START_DATE
+P2_MONITORING_REFERENCE_END = P2_END_DATE
+P2_MONITORING_CURRENT_START = "2026-10-01"
+P2_MONITORING_CURRENT_END = "2026-11-01"
+P2_MONITORING_SAMPLE_SIZE = 100_000
+P2_MONITORING_PSI_THRESHOLD = 0.20
+P2_MONITORING_REPORT_DIR = REPORTS_DIR / "evidently" / "p2"
+P2_MONITORING_SUMMARY_DIR = REFERENCES_DIR / "observabilidad"
+P2_MONITORING_REFERENCE_FILE = INTERIM_DATA_DIR / "p2_reference.parquet"
+P2_MONITORING_CURRENT_DATA_FILE = INTERIM_DATA_DIR / "p2_current_2026_10.parquet"
+
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135
 try:

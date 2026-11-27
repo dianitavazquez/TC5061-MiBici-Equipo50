@@ -9,6 +9,14 @@
 # Reportes HTML de DeepChecks: muestran viajes individuales, solo se sube el resumen
 /reports/deepchecks/
 
+# Exportaciones crudas de Locust; se conservan resúmenes, gráficas y recursos.
+/reports/load-tests/*/locust-report.html
+/reports/load-tests/*/locust_*.csv
+
+# Los paneles estación-hora se regeneran; el reporte agregado de Evidently sí se versiona.
+/data/interim/p2_reference.parquet
+/data/interim/p2_current_*.parquet
+
 # Mac OS-specific storage files
 .DS_Store
 

@@ -66,6 +66,24 @@ plantilla versionada y modifica únicamente tu archivo local:
 ```bash
 cp .env.example .env
 ```
+
+### Demo end-to-end
+
+El recorrido mínimo levanta MLflow, inicializa el Registry con champion y challenger, inicia
+FastAPI y valida el linaje del modelo servido:
+
+```bash
+docker compose up --build -d --wait
+curl http://localhost:8000/health
+curl http://localhost:8000/model-info
+open http://localhost:5050
+open http://localhost:8000/docs
+```
+
+En un Registry nuevo, `registry-bootstrap` registra de forma idempotente los artefactos
+versionados de `models/serving/`, asigna los aliases `champion` y `challenger` y verifica que
+el champion se pueda cargar. El flujo completo del demo está en `docs/demo-runbook.md`.
+
 ### Preparación, validación de datos y entrenamiento
 
 ```bash
@@ -353,10 +371,14 @@ Docker Compose permite ejecutar FastAPI y MLflow en una misma red, con verificac
 
 | Servicio | Puerto | Función |
 | --- | --- | --- |
-| FastAPI | 8000 | Inferencia del modelo P2 |
-| MLflow | 5050 | Tracking de experimentos |
+| FastAPI | 8000 | Inferencia y metadatos del modelo P2 |
+| MLflow | 5050 | Tracking y Model Registry |
+| Registry bootstrap | — | Registra champion/challenger antes de iniciar la API |
+| Locust (perfil `load-test`) | — | Genera carga y reportes bajo demanda |
 
-La API utiliza el modelo incluido en `models/serving/p2/`. Por lo tanto, no necesita conectarse a MLflow para cargar el modelo durante la inferencia.
+La API utiliza el modelo incluido en `models/serving/p2/`, por lo que no depende de MLflow
+durante la inferencia. El bootstrap carga la misma versión en el Registry para que el estado,
+los aliases y el linaje sean visibles y reproducibles durante el demo.
 
 #### Construcción y ejecución
 
@@ -377,6 +399,7 @@ Interfaces disponibles:
 
 ```bash
 curl http://localhost:8000/health
+curl http://localhost:8000/model-info
 curl http://localhost:5050/health
 ```
 
@@ -393,7 +416,8 @@ docker compose logs --tail=100
 docker compose down
 ```
 
-El volumen `mlflow-data` conserva los datos de MLflow después de detener los contenedores.
+El volumen `mlflow-data` conserva tracking, Registry y artefactos después de detener los
+contenedores. `docker compose down -v` permite ensayar el bootstrap desde cero.
 
 #### Dependencias
 
@@ -403,19 +427,45 @@ La imagen Docker utiliza `requirements-api.txt` para instalar las dependencias n
 
 El workflow `.github/workflows/ci.yml` automatiza las siguientes validaciones:
 
-1. Validación de Docker Compose.
-2. Construcción de la imagen Docker.
-3. Ejecución de las ocho pruebas de `tests/test_api.py`.
+1. Suite completa, formato, lint y análisis de seguridad.
+2. Validación y construcción de Docker Compose.
+3. Inicialización y verificación del Model Registry.
 4. Inicio de FastAPI y MLflow.
-5. Verificación de ambos endpoints de salud.
-6. Inferencia real del modelo P2 mediante `/predict`.
-7. Recolección de logs en caso de error y limpieza de contenedores.
+5. Verificación de salud, linaje e inferencia real.
+6. Smoke test de Locust.
+7. Publicación de la imagen en GHCR al integrar cambios en `main`.
 
 El workflow se ejecuta automáticamente mediante `push` y `pull_request`, o manualmente mediante `workflow_dispatch`.
 
 El pipeline fue ejecutado exitosamente en GitHub Actions.
 
-**Alcance:** el pipeline implementa integración continua (CI) y despliegue automatizado temporal para pruebas de integración mediante Docker Compose. Construye la imagen, ejecuta las pruebas, inicia los servicios y valida su funcionamiento antes de detenerlos. No realiza despliegues persistentes en producción ni publica imágenes en un registro externo.
+**Alcance:** los pull requests ejecutan CI sin publicar. Un push revisado a `main` entrega una
+imagen inmutable `ghcr.io/<organización>/tc5061-mibici-equipo50:<sha>` y actualiza `latest`.
+La ejecución en un proveedor cloud queda fuera del repositorio porque no existe un destino ni
+credenciales compartidas; GHCR constituye la etapa de continuous delivery.
+
+### 6. Pruebas de carga con Locust
+
+```bash
+# 50 usuarios, 5 usuarios/s y 2 minutos por defecto
+make load-test
+
+# Ensayo corto para el demo
+USERS=10 SPAWN_RATE=2 RUN_TIME=30s make load-test
+```
+
+Cada corrida crea en `reports/load-tests/<fecha>/` los CSV de Locust, reporte HTML, gráficas,
+consumo de CPU/memoria y un veredicto contra p95 ≤ 500 ms y errores ≤ 1%.
+
+### 7. Monitoreo y gobernanza
+
+```bash
+make monitor-p2
+```
+
+Evidently compara la referencia real de entrenamiento con octubre de 2026. La interpretación
+está en `docs/p2-observabilidad.md`, el reporte en `reports/evidently/p2/` y las reglas de uso,
+limitaciones, A/B testing y reentrenamiento en `MODEL_CARD.md`.
 
 ---
 

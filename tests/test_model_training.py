@@ -32,9 +32,7 @@ def datos_p2():
     datos = pd.DataFrame({columna: (indices % 7).astype(float) for columna in NUMERIC_FEATURES})
     for columna in CATEGORICAL_FEATURES:
         datos[columna] = (indices % 4 + 1).astype(str)
-    objetivos = pd.DataFrame(
-        {TARGETS[0]: indices % 2, TARGETS[1]: (indices // 2) % 2}
-    )
+    objetivos = pd.DataFrame({TARGETS[0]: indices % 2, TARGETS[1]: (indices // 2) % 2})
     return datos, objetivos
 
 
@@ -46,9 +44,7 @@ def datos_p3():
     columnas = list(dict.fromkeys([*P3_USAGE_FEATURES, "capacidad"]))
     grupos = []
     for centro in (2.0, 12.0, 30.0):
-        bloque = pd.DataFrame(
-            rng.uniform(0.0, 0.3, size=(12, len(columnas))), columns=columnas
-        )
+        bloque = pd.DataFrame(rng.uniform(0.0, 0.3, size=(12, len(columnas))), columns=columnas)
         for columna in columnas:
             bloque[columna] += centro
         grupos.append(bloque)
@@ -56,6 +52,7 @@ def datos_p3():
 
 
 # P1: regresión y evaluación de demanda
+
 
 def test_p1_evaluacion_calcula_mae_y_rmse():
     modelo = DummyRegressor(strategy="constant", constant=2.0)
@@ -84,7 +81,9 @@ def test_p1_entrenamiento_es_reproducible_con_semilla_fija():
     rng = np.random.default_rng(42)
     datos = rng.normal(size=(90, 4))
     objetivos = np.maximum(0, datos[:, 0] * 3 + datos[:, 1] + 5)
-    parametros = dict(max_iter=20, min_samples_leaf=5, early_stopping=False, random_state=RANDOM_SEED)
+    parametros = dict(
+        max_iter=20, min_samples_leaf=5, early_stopping=False, random_state=RANDOM_SEED
+    )
 
     primero = HistGradientBoostingRegressor(**parametros).fit(datos, objetivos)
     segundo = HistGradientBoostingRegressor(**parametros).fit(datos, objetivos)
@@ -93,6 +92,7 @@ def test_p1_entrenamiento_es_reproducible_con_semilla_fija():
 
 
 # P2: clasificación multisalida y partición cronológica
+
 
 def test_p2_pipeline_entrena_y_predice_ambos_objetivos(datos_p2):
     datos, objetivos = datos_p2
@@ -146,6 +146,7 @@ def test_p2_particion_rechaza_un_solo_instante():
 
 
 # P3: clustering, reproducibilidad y métricas
+
 
 def test_p3_entrenamiento_asigna_un_grupo_a_cada_estacion(datos_p3):
     from mibici_ml.modeling.train import P3_USAGE_FEATURES
